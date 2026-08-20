@@ -56,3 +56,20 @@ jobs:
           path: build/ios/Selene-iOS-unsigned.app.zip
           if-no-files-found: error
           retention-days: 14
+
+      - name: Package unsigned IPA
+        run: |
+          rm -rf build/ios/Payload
+          mkdir -p build/ios/Payload
+          ditto build/ios/iphoneos/Runner.app build/ios/Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent build/ios/Payload build/ios/Selene-iOS-unsigned.ipa
+          unzip -Z1 build/ios/Selene-iOS-unsigned.ipa > build/ios/ipa-contents.txt
+          grep -Fxq 'Payload/Runner.app/' build/ios/ipa-contents.txt
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Selene-iOS-unsigned-ipa
+          path: build/ios/Selene-iOS-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

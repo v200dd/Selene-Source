@@ -45,3 +45,13 @@ if ! grep -q "Selene-iOS-unsigned.app.zip" "$workflow"; then
   echo "iOS workflow must preserve the app bundle in a zip archive"
   exit 1
 fi
+
+if ! grep -q "Selene-iOS-unsigned.ipa" "$workflow"; then
+  echo "iOS workflow must package an unsigned IPA"
+  exit 1
+fi
+
+if ! grep -q "Payload/Runner.app/" "$workflow"; then
+  echo "iOS workflow must verify the IPA Payload/Runner.app structure"
+  exit 1
+fi
