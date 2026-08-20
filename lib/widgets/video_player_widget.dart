@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pip/pip.dart';
+import 'danmaku_overlay.dart';
 import 'mobile_player_controls.dart';
 import 'pc_player_controls.dart';
 import 'video_player_surface.dart';
@@ -139,7 +141,12 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   bool _playerDisposed = false;
   VoidCallback? _exitWebFullscreenCallback;
   final Pip _pip = Pip();
+  static const MethodChannel _iosPipChannel =
+      MethodChannel('selene/ios_pip');
   bool _isPipMode = false;
+  bool _danmakuEnabled = true;
+  final List<DanmakuItem> _danmakuItems = [];
+  int _nextDanmakuId = 0;
 
   @override
   void initState() {
@@ -150,6 +157,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     _initializePlayer();
     _setupPip();
     _registerPipObserver();
+    _registerIosPipHandler();
     widget.onControllerCreated?.call(VideoPlayerWidgetController._(this));
   }
 
@@ -239,23 +247,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
         setState(() {
           _hasCompleted = false;
         });
-        _pip.setup(const PipOptions(
-          autoEnterEnabled: false,
-          aspectRatioX: 16,
-          aspectRatioY: 9,
-          preferredContentWidth: 480,
-          preferredContentHeight: 270,
-          controlStyle: 2,
-        ));
-      } else {
-        _pip.setup(const PipOptions(
-          autoEnterEnabled: true,
-          aspectRatioX: 16,
-          aspectRatioY: 9,
-          preferredContentWidth: 480,
-          preferredContentHeight: 270,
-          controlStyle: 2,
-        ));
       }
     });
 
@@ -291,6 +282,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       return;
     }
     _currentUrl = url;
+    _danmakuItems.clear();
     if (headers != null) {
       _currentHeaders = headers;
     }
@@ -353,11 +345,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   }
 
   void _setupPip() {
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      return;
-    }
+    if (!Platform.isAndroid) return;
     _pip.setup(const PipOptions(
-      autoEnterEnabled: true,
+      autoEnterEnabled: false,
       aspectRatioX: 16,
       aspectRatioY: 9,
       preferredContentWidth: 480,
@@ -367,9 +357,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   }
 
   void _registerPipObserver() {
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      return;
-    }
+    if (!Platform.isAndroid) return;
     _pip.registerStateChangedObserver(PipStateChangedObserver(
       onPipStateChanged: (state, error) {
         if (!mounted) return;
@@ -405,6 +393,19 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   Future<void> _enterPipMode() async {
     debugPrint('_enterPipMode');
     try {
+      if (Platform.isIOS) {
+        if (_currentUrl == null || _player == null) return;
+        await _player!.pause();
+        final started = await _iosPipChannel.invokeMethod<bool>('start', {
+              'url': _currentUrl,
+              'headers': _currentHeaders ?? const <String, String>{},
+              'positionMs': _player!.state.position.inMilliseconds,
+            }) ??
+            false;
+        if (!started) await _player!.play();
+        return;
+      }
+
       var support = await _pip.isSupported();
       if (!support) {
         debugPrint('Device does not support PiP!');
@@ -414,8 +415,122 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       await _pip.start();
     } catch (e) {
       debugPrint('Failed to enter PiP mode: $e');
-      _setupPip();
+      if (Platform.isIOS) {
+        await _player?.play();
+      } else {
+        _setupPip();
+      }
     }
+  }
+
+  void _registerIosPipHandler() {
+    if (!Platform.isIOS) return;
+    _iosPipChannel.setMethodCallHandler((call) async {
+      if (!mounted) return;
+      switch (call.method) {
+        case 'started':
+          setState(() => _isPipMode = true);
+          widget.onPipModeChanged?.call(true);
+          break;
+        case 'stopped':
+          final arguments = call.arguments as Map<dynamic, dynamic>?;
+          final positionMs = arguments?['positionMs'] as int?;
+          if (positionMs != null) {
+            await _player?.seek(Duration(milliseconds: positionMs));
+          }
+          await _player?.play();
+          if (!mounted) return;
+          setState(() => _isPipMode = false);
+          widget.onPipModeChanged?.call(false);
+          break;
+        case 'failed':
+          await _player?.play();
+          if (!mounted) return;
+          setState(() => _isPipMode = false);
+          widget.onPipModeChanged?.call(false);
+          debugPrint('iOS PiP failed: ${call.arguments}');
+          break;
+      }
+    });
+  }
+
+  Future<void> _showDanmakuPanel() async {
+    final textController = TextEditingController();
+    var enabled = _danmakuEnabled;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void submit() {
+              final text = textController.text.trim();
+              if (text.isEmpty) return;
+              setState(() {
+                _danmakuEnabled = true;
+                _danmakuItems.add(
+                  DanmakuItem(
+                    id: _nextDanmakuId++,
+                    text: text,
+                    position: _player?.state.position ?? Duration.zero,
+                  ),
+                );
+              });
+              Navigator.of(dialogContext).pop();
+            }
+
+            return AlertDialog(
+              title: const Text('弹幕'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('显示弹幕'),
+                    value: enabled,
+                    onChanged: (value) {
+                      setDialogState(() => enabled = value);
+                      setState(() => _danmakuEnabled = value);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: textController,
+                    autofocus: true,
+                    maxLength: 50,
+                    decoration: const InputDecoration(
+                      labelText: '发送弹幕',
+                      hintText: '输入内容',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => submit(),
+                  ),
+                ],
+              ),
+              actions: [
+                if (_danmakuItems.isNotEmpty)
+                  TextButton(
+                    onPressed: () {
+                      setState(_danmakuItems.clear);
+                      Navigator.of(dialogContext).pop();
+                    },
+                    child: const Text('清空'),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: submit,
+                  child: const Text('发送'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    textController.dispose();
   }
 
   Future<void> _externalDispose() async {
@@ -462,8 +577,13 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     if (Platform.isAndroid || Platform.isIOS) {
-      _pip.unregisterStateChangedObserver();
-      _pip.dispose();
+      if (Platform.isAndroid) {
+        _pip.unregisterStateChangedObserver();
+        _pip.dispose();
+      } else {
+        _iosPipChannel.setMethodCallHandler(null);
+        _iosPipChannel.invokeMethod<void>('dispose');
+      }
     }
     _disposePlayer();
     _playbackSpeed.dispose();
@@ -478,53 +598,68 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
           ? Video(
               controller: _videoController!,
               controls: (state) {
-                return widget.surface == VideoPlayerSurface.desktop
+                final controls = widget.surface == VideoPlayerSurface.desktop
                     ? PCPlayerControls(
-                        state: state,
-                        player: _player!,
-                        onBackPressed: widget.onBackPressed,
-                        onNextEpisode: widget.onNextEpisode,
-                        onPause: widget.onPause,
-                        videoUrl: _currentUrl ?? '',
-                        isLastEpisode: widget.isLastEpisode,
-                        isLoadingVideo: _isLoadingVideo,
-                        onCastStarted: widget.onCastStarted,
-                        videoTitle: widget.videoTitle,
-                        currentEpisodeIndex: widget.currentEpisodeIndex,
-                        totalEpisodes: widget.totalEpisodes,
-                        sourceName: widget.sourceName,
-                        onWebFullscreenChanged: widget.onWebFullscreenChanged,
-                        onExitWebFullscreenCallbackReady: (callback) {
-                          _exitWebFullscreenCallback = callback;
-                        },
-                        onExitFullScreen: widget.onExitFullScreen,
-                        live: widget.live,
-                        playbackSpeedListenable: _playbackSpeed,
-                        onSetSpeed: _setPlaybackSpeed,
+                            state: state,
+                            player: _player!,
+                            onBackPressed: widget.onBackPressed,
+                            onNextEpisode: widget.onNextEpisode,
+                            onPause: widget.onPause,
+                            videoUrl: _currentUrl ?? '',
+                            isLastEpisode: widget.isLastEpisode,
+                            isLoadingVideo: _isLoadingVideo,
+                            onCastStarted: widget.onCastStarted,
+                            videoTitle: widget.videoTitle,
+                            currentEpisodeIndex: widget.currentEpisodeIndex,
+                            totalEpisodes: widget.totalEpisodes,
+                            sourceName: widget.sourceName,
+                            onWebFullscreenChanged:
+                                widget.onWebFullscreenChanged,
+                            onExitWebFullscreenCallbackReady: (callback) {
+                              _exitWebFullscreenCallback = callback;
+                            },
+                            onExitFullScreen: widget.onExitFullScreen,
+                            live: widget.live,
+                            playbackSpeedListenable: _playbackSpeed,
+                            onSetSpeed: _setPlaybackSpeed,
+                            danmakuEnabled: _danmakuEnabled,
+                            onShowDanmakuPanel: _showDanmakuPanel,
                       )
                     : MobilePlayerControls(
-                        player: _player!,
-                        state: state,
-                        onControlsVisibilityChanged: (_) {},
-                        onBackPressed: widget.onBackPressed,
-                        onFullscreenChange: (_) {},
-                        onNextEpisode: widget.onNextEpisode,
-                        onPause: widget.onPause,
-                        videoUrl: _currentUrl ?? '',
-                        isLastEpisode: widget.isLastEpisode,
-                        isLoadingVideo: _isLoadingVideo,
-                        onCastStarted: widget.onCastStarted,
-                        videoTitle: widget.videoTitle,
-                        currentEpisodeIndex: widget.currentEpisodeIndex,
-                        totalEpisodes: widget.totalEpisodes,
-                        sourceName: widget.sourceName,
-                        onExitFullScreen: widget.onExitFullScreen,
-                        live: widget.live,
-                        playbackSpeedListenable: _playbackSpeed,
-                        onSetSpeed: _setPlaybackSpeed,
-                        onEnterPipMode: _enterPipMode,
-                        isPipMode: _isPipMode,
+                            player: _player!,
+                            state: state,
+                            onControlsVisibilityChanged: (_) {},
+                            onBackPressed: widget.onBackPressed,
+                            onFullscreenChange: (_) {},
+                            onNextEpisode: widget.onNextEpisode,
+                            onPause: widget.onPause,
+                            videoUrl: _currentUrl ?? '',
+                            isLastEpisode: widget.isLastEpisode,
+                            isLoadingVideo: _isLoadingVideo,
+                            onCastStarted: widget.onCastStarted,
+                            videoTitle: widget.videoTitle,
+                            currentEpisodeIndex: widget.currentEpisodeIndex,
+                            totalEpisodes: widget.totalEpisodes,
+                            sourceName: widget.sourceName,
+                            onExitFullScreen: widget.onExitFullScreen,
+                            live: widget.live,
+                            playbackSpeedListenable: _playbackSpeed,
+                            onSetSpeed: _setPlaybackSpeed,
+                            onEnterPipMode: _enterPipMode,
+                            isPipMode: _isPipMode,
+                            danmakuEnabled: _danmakuEnabled,
+                            onShowDanmakuPanel: _showDanmakuPanel,
                       );
+                return Stack(
+                  children: [
+                    DanmakuOverlay(
+                      player: _player!,
+                      items: _danmakuItems,
+                      enabled: _danmakuEnabled,
+                    ),
+                    controls,
+                  ],
+                );
               },
             )
           : const Center(

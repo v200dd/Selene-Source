@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class UserDataService {
+  static const String defaultServerUrl = 'https://cf.motv.200996.xyz';
   static const String _serverUrlKey = 'server_url';
   static const String _usernameKey = 'username';
   static const String _passwordKey = 'password';
@@ -31,8 +32,7 @@ class UserDataService {
 
   // 获取服务器地址
   static Future<String?> getServerUrl() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_serverUrlKey);
+    return defaultServerUrl;
   }
 
   // 获取用户名

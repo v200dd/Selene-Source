@@ -157,24 +157,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     WidgetsBinding.instance.addObserver(this);
   }
 
-  /// 设置竖屏方向
-  void _setPortraitOrientation() {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-  }
-
-  /// 恢复所有方向
-  void _restoreOrientation() {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-  }
-
   void initParam() {
     currentSource = widget.source ?? '';
     currentID = widget.id ?? '';
@@ -2573,11 +2555,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       _isTablet = DeviceUtils.isTablet(context);
       _isPortraitTablet = DeviceUtils.isPortraitTablet(context);
 
-      // 设置屏幕方向（平板除外）
-      // 如果是平板，不强制竖屏
-      if (!_isTablet) {
-        _setPortraitOrientation();
-      }
       // 保存当前的系统UI样式
       final theme = Theme.of(context);
       final isDarkMode = theme.brightness == Brightness.dark;
@@ -2605,8 +2582,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     _removeVideoProgressListener();
     // 移除应用生命周期监听器
     WidgetsBinding.instance.removeObserver(this);
-    // 恢复屏幕方向
-    _restoreOrientation();
     // 恢复原始的系统UI样式
     SystemChrome.setSystemUIOverlayStyle(_originalStyle);
     // 销毁播放器

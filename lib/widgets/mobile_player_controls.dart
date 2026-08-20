@@ -30,6 +30,8 @@ class MobilePlayerControls extends StatefulWidget {
   final Future<void> Function(double speed) onSetSpeed;
   final Future<void> Function() onEnterPipMode;
   final bool isPipMode;
+  final bool danmakuEnabled;
+  final Future<void> Function() onShowDanmakuPanel;
 
   const MobilePlayerControls({
     super.key,
@@ -54,6 +56,8 @@ class MobilePlayerControls extends StatefulWidget {
     required this.onSetSpeed,
     required this.onEnterPipMode,
     required this.isPipMode,
+    required this.danmakuEnabled,
+    required this.onShowDanmakuPanel,
   });
 
   @override
@@ -890,20 +894,45 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
                       ),
                     ),
                   ),
-                if (Platform.isAndroid)
+                if (!widget.live)
+                  Tooltip(
+                    message: '弹幕',
+                    child: GestureDetector(
+                      onTap: () async {
+                        _onUserInteraction();
+                        await widget.onShowDanmakuPanel();
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(
+                          widget.danmakuEnabled
+                              ? Icons.subtitles
+                              : Icons.subtitles_off,
+                          color: widget.danmakuEnabled
+                              ? Colors.white
+                              : Colors.white54,
+                          size: _isFullscreen ? 22 : 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (Platform.isAndroid || Platform.isIOS)
                   GestureDetector(
                     onTap: () async {
-                      print('PIP button clicked!');
                       _onUserInteraction();
                       await _enterPipMode();
                     },
                     behavior: HitTestBehavior.opaque,
                     child: Container(
                       padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.picture_in_picture_alt,
-                        color: Colors.white,
-                        size: _isFullscreen ? 22 : 20,
+                      child: Tooltip(
+                        message: '画中画',
+                        child: Icon(
+                          Icons.picture_in_picture_alt,
+                          color: Colors.white,
+                          size: _isFullscreen ? 22 : 20,
+                        ),
                       ),
                     ),
                   ),

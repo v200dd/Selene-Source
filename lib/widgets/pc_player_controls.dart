@@ -70,6 +70,8 @@ class PCPlayerControls extends StatefulWidget {
   final bool live;
   final ValueNotifier<double> playbackSpeedListenable;
   final Future<void> Function(double speed) onSetSpeed;
+  final bool danmakuEnabled;
+  final Future<void> Function() onShowDanmakuPanel;
 
   const PCPlayerControls({
     super.key,
@@ -93,6 +95,8 @@ class PCPlayerControls extends StatefulWidget {
     this.live = false,
     required this.playbackSpeedListenable,
     required this.onSetSpeed,
+    required this.danmakuEnabled,
+    required this.onShowDanmakuPanel,
   });
 
   @override
@@ -929,6 +933,25 @@ class _PCPlayerControlsState extends State<PCPlayerControls> {
                                 child: Icon(
                                   Icons.speed,
                                   color: Colors.white,
+                                  size: effectiveFullscreen ? 22 : 20,
+                                ),
+                              ),
+                            ),
+                          if (!widget.live)
+                            Tooltip(
+                              message: '弹幕',
+                              child: HoverButton(
+                                onTap: () {
+                                  _onUserInteraction();
+                                  widget.onShowDanmakuPanel();
+                                },
+                                child: Icon(
+                                  widget.danmakuEnabled
+                                      ? Icons.subtitles
+                                      : Icons.subtitles_off,
+                                  color: widget.danmakuEnabled
+                                      ? Colors.white
+                                      : Colors.white54,
                                   size: effectiveFullscreen ? 22 : 20,
                                 ),
                               ),
