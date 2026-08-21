@@ -15,6 +15,7 @@ class UserDataService {
   static const String _playbackCacheModeKey = 'playback_cache_mode';
   static const String _danmakuEnabledKey = 'danmaku_enabled';
   static const String _workerProxyUrlKey = 'worker_proxy_url';
+  static const String _landscapeDirectionKey = 'landscape_direction';
 
   // 内存缓存
   static bool? _isLocalModeCache;
@@ -311,6 +312,21 @@ class UserDataService {
   static Future<void> saveDanmakuEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_danmakuEnabledKey, enabled);
+  }
+
+  /// 全屏横屏方向：'left'（默认，手机往左转）或 'right'。
+  static Future<String> getLandscapeDirection() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_landscapeDirectionKey) ?? 'left';
+    return value == 'right' ? 'right' : 'left';
+  }
+
+  static Future<void> saveLandscapeDirection(String direction) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _landscapeDirectionKey,
+      direction == 'right' ? 'right' : 'left',
+    );
   }
 
   /// Cloudflare Worker 代理加速地址（留空表示不启用）。

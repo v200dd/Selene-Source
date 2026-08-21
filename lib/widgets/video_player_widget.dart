@@ -397,22 +397,29 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     if (mounted) setState(() => _danmakuEnabled = enabled);
   }
 
-  /// 进入全屏：隐藏系统 UI 并转横屏（两个方向都允许，由重力决定）。
+  /// 进入全屏：转到固定的横屏方向并隐藏系统 UI。
+  ///
+  /// 两件事一起发，不要分两步 await：分两步的话 iOS 会先按竖屏尺寸重排一次界面，
+  /// 再按横屏重排一次，用户看到的就是「闪一下」。
   Future<void> _onEnterNativeFullscreen() async {
-    await SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.immersiveSticky,
-      overlays: const [],
-    );
-    await OrientationUtils.forceLandscape();
+    await Future.wait([
+      OrientationUtils.forceLandscape(),
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.immersiveSticky,
+        overlays: const [],
+      ),
+    ]);
   }
 
-  /// 退出全屏：恢复系统 UI 并回到竖屏。
+  /// 退出全屏：回到竖屏并恢复系统 UI。同样一次性发出，减少中间态重排。
   Future<void> _onExitNativeFullscreen() async {
-    await SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
-    await OrientationUtils.lockPortrait();
+    await Future.wait([
+      OrientationUtils.lockPortrait(),
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      ),
+    ]);
   }
 
   Future<void> _loadDanmaku({bool bypassCache = false}) async {

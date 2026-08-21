@@ -106,16 +106,24 @@ if grep -q "setPreferredOrientations" "$repo_root/lib/screens/player_screen.dart
   exit 1
 fi
 
-# 播放页必须允许两个方向的横屏，否则往反方向转手机画面会倒 180°。
-if ! grep -q "DeviceOrientation.landscapeLeft" \
+# 全屏只能给一个横屏方向：两个都给的话系统按重力自己挑，挑反了画面就是倒的，
+# 而且切换瞬间会多重排一次（用户看到的「闪一下」）。
+if ! grep -q "setPreferredOrientations(\[_direction.orientation\])" \
   "$repo_root/lib/utils/orientation_utils.dart"; then
-  echo "playback must allow both landscape orientations"
+  echo "fullscreen must lock exactly one landscape orientation"
   exit 1
 fi
 
-if ! grep -q "DeviceOrientation.landscapeRight" \
+# 方向做成可切换的设置项，方向反了不用重新打包。
+if ! grep -q "enum LandscapeDirection" \
   "$repo_root/lib/utils/orientation_utils.dart"; then
-  echo "playback must allow both landscape orientations"
+  echo "landscape direction must be configurable"
+  exit 1
+fi
+
+if ! grep -q "saveLandscapeDirection" \
+  "$repo_root/lib/widgets/user_menu.dart"; then
+  echo "settings must expose the landscape direction switch"
   exit 1
 fi
 

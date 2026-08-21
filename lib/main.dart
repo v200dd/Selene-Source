@@ -24,6 +24,11 @@ void main() async {
   // 手机端默认竖屏，只有播放页会放开旋转。
   await OrientationUtils.lockPortrait();
 
+  // 全屏用哪个横屏方向由设置决定（默认往左）。
+  OrientationUtils.setDirection(
+    LandscapeDirection.fromName(await UserDataService.getLandscapeDirection()),
+  );
+
   // 初始化 macOS 窗口配置
   if (Platform.isMacOS) {
     await WindowManipulator.initialize(enableWindowDelegate: true);

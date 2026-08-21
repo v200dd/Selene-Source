@@ -13,6 +13,7 @@ import '../services/version_service.dart';
 import '../services/worker_proxy_service.dart';
 import '../utils/device_utils.dart';
 import '../utils/font_utils.dart';
+import '../utils/orientation_utils.dart';
 import 'update_dialog.dart';
 
 class UserMenu extends StatefulWidget {
@@ -41,6 +42,7 @@ class _UserMenuState extends State<UserMenu> {
   bool _localSearch = false;
   bool _isLocalMode = false;
   String _playbackCacheMode = '默认';
+  String _landscapeDirection = '向左';
 
   @override
   void initState() {
@@ -71,6 +73,7 @@ class _UserMenuState extends State<UserMenu> {
     final preferSpeedTest = await UserDataService.getPreferSpeedTest();
     final localSearch = await UserDataService.getLocalSearch();
     final playbackCacheMode = await UserDataService.getPlaybackCacheMode();
+    final landscapeDirection = await UserDataService.getLandscapeDirection();
 
     if (mounted) {
       setState(() {
@@ -88,6 +91,7 @@ class _UserMenuState extends State<UserMenu> {
           'maximum' => '强力',
           _ => '默认',
         };
+        _landscapeDirection = landscapeDirection == 'right' ? '向右' : '向左';
       });
     }
   }
@@ -415,12 +419,10 @@ class _UserMenuState extends State<UserMenu> {
   /// Cloudflare Worker 代理加速：地址 + 功能说明。
   void _showWorkerProxyDialog() {
     final controller = TextEditingController(text: _workerProxyUrl);
-    final textColor = widget.isDarkMode
-        ? const Color(0xFFffffff)
-        : const Color(0xFF1f2937);
-    final mutedColor = widget.isDarkMode
-        ? const Color(0xFF9ca3af)
-        : const Color(0xFF6b7280);
+    final textColor =
+        widget.isDarkMode ? const Color(0xFFffffff) : const Color(0xFF1f2937);
+    final mutedColor =
+        widget.isDarkMode ? const Color(0xFF9ca3af) : const Color(0xFF6b7280);
     const features = [
       '通过 Cloudflare 全球 CDN 加速视频源 API 访问',
       '自动转发所有 API 参数（ac=list、ac=detail 等）',
@@ -530,8 +532,8 @@ class _UserMenuState extends State<UserMenu> {
                 await UserDataService.saveWorkerProxyUrl(url);
                 WorkerProxyService.resetHealthCache();
                 if (!mounted) return;
-                setState(() => _workerProxyUrl =
-                    url.replaceAll(RegExp(r'/+$'), ''));
+                setState(
+                    () => _workerProxyUrl = url.replaceAll(RegExp(r'/+$'), ''));
                 if (context.mounted) Navigator.of(context).pop();
               },
               child: Text(
@@ -998,6 +1000,28 @@ class _UserMenuState extends State<UserMenu> {
                         setState(() => _playbackCacheMode = value);
                       },
                       icon: LucideIcons.gauge,
+                    ),
+                    Container(
+                      height: 1,
+                      color: widget.isDarkMode
+                          ? const Color(0xFF374151)
+                          : const Color(0xFFe5e7eb),
+                    ),
+                    // 全屏方向固定成单一方向，避免系统按重力选反导致画面倒置。
+                    _buildOptionSelector(
+                      title: '全屏方向',
+                      currentValue: _landscapeDirection,
+                      options: const ['向左', '向右'],
+                      onChanged: (value) async {
+                        final direction = value == '向右' ? 'right' : 'left';
+                        await UserDataService.saveLandscapeDirection(direction);
+                        OrientationUtils.setDirection(
+                          LandscapeDirection.fromName(direction),
+                        );
+                        if (!mounted) return;
+                        setState(() => _landscapeDirection = value);
+                      },
+                      icon: LucideIcons.rotateCw,
                     ),
                     // 本地搜索选项（本地模式下不显示）
                     if (!_isLocalMode) ...[
