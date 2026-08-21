@@ -42,8 +42,15 @@ jobs:
           ndk_version="$(grep -oE 'ndkVersion = "[^"]+"' android/app/build.gradle.kts \
             | head -1 | cut -d'"' -f2)"
           echo "Installing NDK $ndk_version"
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "ndk;$ndk_version"
+          # sdkmanager 不在 PATH 上，按已知位置找。
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f \
+            2>/dev/null | sort | tail -1)"
+          if [ -z "$sdkmanager" ]; then
+            echo "sdkmanager not found under $ANDROID_HOME" >&2
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$sdkmanager" --install "ndk;$ndk_version"
           test -d "$ANDROID_HOME/ndk/$ndk_version"
 
       - name: Resolve Flutter dependencies
