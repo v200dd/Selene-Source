@@ -19,6 +19,7 @@ import '../widgets/switch_loading_overlay.dart';
 import '../widgets/dlna_player.dart';
 import '../widgets/dlna_device_dialog.dart';
 import '../utils/device_utils.dart';
+import '../utils/orientation_utils.dart';
 import '../widgets/player_details_panel.dart';
 import '../widgets/player_episodes_panel.dart';
 import '../widgets/player_sources_panel.dart';
@@ -156,6 +157,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     )..repeat();
     // 添加应用生命周期监听器
     WidgetsBinding.instance.addObserver(this);
+    // 播放页放开旋转（不强制横屏），两个方向的横屏都允许，
+    // 这样往左或往右转手机画面都是正的。
+    OrientationUtils.allowPlaybackRotation();
   }
 
   void initParam() {
@@ -2590,6 +2594,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     _removeVideoProgressListener();
     // 移除应用生命周期监听器
     WidgetsBinding.instance.removeObserver(this);
+    // 退出播放页恢复竖屏，否则回到首页会一直停在横屏。
+    OrientationUtils.lockPortrait();
     // 恢复原始的系统UI样式
     SystemChrome.setSystemUIOverlayStyle(_originalStyle);
     // 销毁播放器

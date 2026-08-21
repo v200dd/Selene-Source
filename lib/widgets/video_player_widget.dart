@@ -10,6 +10,7 @@ import '../services/danmaku_service.dart';
 import '../services/download_service.dart';
 import '../services/hls_downloader.dart';
 import '../services/user_data_service.dart';
+import '../utils/orientation_utils.dart';
 import 'danmaku_overlay.dart';
 import 'mobile_player_controls.dart';
 import 'pc_player_controls.dart';
@@ -222,7 +223,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
         ),
         play: true,
       );
-      await _applyVideoOrientationFix();
+      // 旋转修正需要等首帧元数据，不能阻塞后面的初始化。
+      unawaited(_applyVideoOrientationFix());
       unawaited(_loadDanmaku());
       if (!mounted || _playerDisposed || _player == null) return;
       await _player!.setRate(_playbackSpeed.value);
@@ -326,7 +328,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
         ),
         play: true,
       );
-      await _applyVideoOrientationFix();
+      unawaited(_applyVideoOrientationFix());
       unawaited(_loadDanmaku());
       _playbackSpeed.value = currentSpeed;
       await _player!.setRate(currentSpeed);
@@ -364,20 +366,54 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
 
   Future<void> _applyVideoOrientationFix() async {
     final platform = _player?.platform;
-    if (platform is NativePlayer) {
-      try {
-        // Some providers incorrectly mark the stream as rotated 180 degrees.
-        // Keep device orientation free while neutralising that video metadata.
-        await platform.setProperty('video-rotate', '0');
-      } catch (error) {
-        debugPrint('VideoPlayerWidget: unable to reset video rotation: $error');
+    if (platform is! NativePlayer) return;
+    try {
+      // 少数源会把 rotate 元数据写错（常见是 180），需要归零。
+      //
+      // 但不能无条件写：给 mpv 设 video-rotate 会重建整条视频滤镜链和输出，
+      // 开播那一下就是用户看到的「闪屏几下」。所以先读真实的元数据角度
+      // （video-params/rotate，不是 video-rotate 选项本身），只有确实非 0 才改。
+      //
+      // 元数据要等首帧解码出来才有，所以这里轮询一小段时间；一直读不到就放弃，
+      // 宁可不改也不要无谓闪屏。
+      for (var attempt = 0; attempt < 20; attempt++) {
+        if (_playerDisposed) return;
+        final raw = await platform.getProperty('video-params/rotate');
+        final degrees = int.tryParse(raw.trim());
+        if (degrees != null) {
+          if (degrees % 360 == 0) return;
+          await platform.setProperty('video-rotate', '0');
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
       }
+    } catch (error) {
+      debugPrint('VideoPlayerWidget: unable to reset video rotation: $error');
     }
   }
 
   Future<void> _loadDanmakuPreference() async {
     final enabled = await UserDataService.getDanmakuEnabled();
     if (mounted) setState(() => _danmakuEnabled = enabled);
+  }
+
+  /// 进入全屏：隐藏系统 UI，但朝向仍然交给重力（竖屏 + 两个横屏都允许）。
+  Future<void> _onEnterNativeFullscreen() async {
+    await SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.immersiveSticky,
+      overlays: const [],
+    );
+    await OrientationUtils.allowPlaybackRotation();
+  }
+
+  /// 退出全屏：恢复系统 UI，朝向依然保持播放页的可旋转集合，
+  /// 真正回到竖屏由播放页 dispose 时统一处理。
+  Future<void> _onExitNativeFullscreen() async {
+    await SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+    await OrientationUtils.allowPlaybackRotation();
   }
 
   Future<void> _loadDanmaku({bool bypassCache = false}) async {
@@ -819,6 +855,12 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       child: _isInitialized && _videoController != null
           ? Video(
               controller: _videoController!,
+              // media_kit 默认进全屏会把朝向限制成两个横屏、退全屏又清空成
+              // 「交给系统」。清空后 iOS 会沿用当前界面朝向，回到列表页就卡在横屏。
+              // 这里两个回调都接管：全屏和非全屏都允许竖屏 + 两个方向的横屏，
+              // 由重力决定，用户往左往右转都是正的。
+              onEnterFullscreen: _onEnterNativeFullscreen,
+              onExitFullscreen: _onExitNativeFullscreen,
               controls: (state) {
                 final controls = widget.surface == VideoPlayerSurface.desktop
                     ? PCPlayerControls(

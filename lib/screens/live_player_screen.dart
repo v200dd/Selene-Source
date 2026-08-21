@@ -9,6 +9,7 @@ import '../models/epg_program.dart';
 import '../services/live_service.dart';
 import '../utils/device_utils.dart';
 import '../utils/font_utils.dart';
+import '../utils/orientation_utils.dart';
 import '../services/theme_service.dart';
 import 'package:provider/provider.dart';
 import '../widgets/windows_title_bar.dart';
@@ -80,6 +81,8 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
     super.initState();
     _currentChannel = widget.channel;
     _currentSource = widget.source;
+    // 直播页同样放开旋转，退出时恢复竖屏。
+    OrientationUtils.allowPlaybackRotation();
 
     // 初始化动画控制器
     _loadingAnimationController = AnimationController(
@@ -173,6 +176,7 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
 
   @override
   void dispose() {
+    OrientationUtils.lockPortrait();
     // 恢复原始的系统UI样式
     SystemChrome.setSystemUIOverlayStyle(_originalStyle);
     _programScrollController.dispose();
@@ -357,7 +361,7 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
 
       // ListTile 的固定高度（通过 SizedBox 设置）
       const itemHeight = 68.0;
-      
+
       // ListView 的 padding: EdgeInsets.symmetric(vertical: 4)
       const listPadding = 4.0;
 
@@ -926,72 +930,72 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
             selectedTileColor: const Color(0xFF27ae60).withOpacity(0.1),
             visualDensity: const VisualDensity(vertical: -1),
             leading: channel.logo.isNotEmpty
-              ? AspectRatio(
-                  aspectRatio: 2.0,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: themeService.isDarkMode
-                          ? const Color(0xFF2a2a2a)
-                          : const Color(0xFFc0c0c0),
-                      borderRadius: BorderRadius.circular(6),
+                ? AspectRatio(
+                    aspectRatio: 2.0,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: themeService.isDarkMode
+                            ? const Color(0xFF2a2a2a)
+                            : const Color(0xFFc0c0c0),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Image.network(
+                          channel.logo,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Icon(
+                              Icons.tv,
+                              size: 16,
+                              color: Color(0xFF95a5b0),
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        channel.logo,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(
-                            Icons.tv,
-                            size: 16,
-                            color: Color(0xFF95a5b0),
-                          );
-                        },
+                  )
+                : AspectRatio(
+                    aspectRatio: 2.0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: themeService.isDarkMode
+                            ? const Color(0xFF2a2a2a)
+                            : const Color(0xFFc0c0c0),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Icon(
+                        Icons.tv,
+                        size: 16,
+                        color: Color(0xFF95a5b0),
                       ),
                     ),
                   ),
-                )
-              : AspectRatio(
-                  aspectRatio: 2.0,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: themeService.isDarkMode
-                          ? const Color(0xFF2a2a2a)
-                          : const Color(0xFFc0c0c0),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Icon(
-                      Icons.tv,
-                      size: 16,
-                      color: Color(0xFF95a5b0),
-                    ),
-                  ),
-                ),
-          title: Text(
-            channel.name,
-            style: FontUtils.poppins(
-              fontSize: 14,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-              color: isSelected
-                  ? const Color(0xFF27ae60)
-                  : themeService.isDarkMode
-                      ? Colors.white
-                      : const Color(0xFF2c3e50),
+            title: Text(
+              channel.name,
+              style: FontUtils.poppins(
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                color: isSelected
+                    ? const Color(0xFF27ae60)
+                    : themeService.isDarkMode
+                        ? Colors.white
+                        : const Color(0xFF2c3e50),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            channel.group,
-            style: FontUtils.poppins(
-              fontSize: 12,
-              color: themeService.isDarkMode
-                  ? const Color(0xFF999999)
-                  : const Color(0xFF7f8c8d),
+            subtitle: Text(
+              channel.group,
+              style: FontUtils.poppins(
+                fontSize: 12,
+                color: themeService.isDarkMode
+                    ? const Color(0xFF999999)
+                    : const Color(0xFF7f8c8d),
+              ),
             ),
-          ),
-          onTap: () => _switchChannel(channel),
+            onTap: () => _switchChannel(channel),
           ),
         );
       },

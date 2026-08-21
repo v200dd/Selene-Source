@@ -9,6 +9,7 @@ import 'services/theme_service.dart';
 import 'services/douban_cache_service.dart';
 import 'services/local_mode_storage_service.dart';
 import 'services/subscription_service.dart';
+import 'utils/orientation_utils.dart';
 import 'dart:io' show Platform;
 import 'package:macos_window_utils/macos_window_utils.dart';
 import 'package:media_kit/media_kit.dart';
@@ -19,6 +20,9 @@ void main() async {
 
   // 初始化 media_kit (用于 PC 端播放器)
   MediaKit.ensureInitialized();
+
+  // 手机端默认竖屏，只有播放页会放开旋转。
+  await OrientationUtils.lockPortrait();
 
   // 初始化 macOS 窗口配置
   if (Platform.isMacOS) {

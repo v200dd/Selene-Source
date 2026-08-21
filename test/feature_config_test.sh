@@ -106,6 +106,39 @@ if grep -q "setPreferredOrientations" "$repo_root/lib/screens/player_screen.dart
   exit 1
 fi
 
+# 播放页必须允许两个方向的横屏，否则往反方向转手机画面会倒 180°。
+if ! grep -q "DeviceOrientation.landscapeLeft" \
+  "$repo_root/lib/utils/orientation_utils.dart"; then
+  echo "playback must allow both landscape orientations"
+  exit 1
+fi
+
+if ! grep -q "DeviceOrientation.landscapeRight" \
+  "$repo_root/lib/utils/orientation_utils.dart"; then
+  echo "playback must allow both landscape orientations"
+  exit 1
+fi
+
+# 退出播放页要恢复竖屏，否则回到首页会卡在横屏。
+if ! grep -q "OrientationUtils.lockPortrait" \
+  "$repo_root/lib/screens/player_screen.dart"; then
+  echo "leaving the player must restore portrait"
+  exit 1
+fi
+
+# 旋转修正必须先读元数据角度，无条件写 video-rotate 会导致开播闪屏。
+if ! grep -q "video-params/rotate" \
+  "$repo_root/lib/widgets/video_player_widget.dart"; then
+  echo "rotation fix must inspect the real metadata angle first"
+  exit 1
+fi
+
+if ! grep -q "onExitFullscreen" \
+  "$repo_root/lib/widgets/video_player_widget.dart"; then
+  echo "player must override the media_kit fullscreen orientation defaults"
+  exit 1
+fi
+
 if ! grep -q "Platform.isAndroid || Platform.isIOS" \
   "$repo_root/lib/widgets/mobile_player_controls.dart"; then
   echo "mobile player must expose Picture in Picture on Android and iOS"

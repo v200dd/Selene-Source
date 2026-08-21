@@ -4,6 +4,7 @@ import '../services/short_drama_service.dart';
 import '../services/theme_service.dart';
 import '../utils/device_utils.dart';
 import '../utils/font_utils.dart';
+import '../utils/orientation_utils.dart';
 import '../widgets/video_player_surface.dart';
 import '../widgets/video_player_widget.dart';
 
@@ -31,6 +32,8 @@ class _ShortDramaPlayerScreenState extends State<ShortDramaPlayerScreen> {
     super.initState();
     _totalEpisodes =
         widget.item.episodeCount < 1 ? 1 : widget.item.episodeCount;
+    // 跟常规播放页一致：放开旋转但不强制横屏，两个方向的横屏都允许。
+    OrientationUtils.allowPlaybackRotation();
     _loadEpisode(1);
     _refreshEpisodeCount();
   }
@@ -83,6 +86,8 @@ class _ShortDramaPlayerScreenState extends State<ShortDramaPlayerScreen> {
 
   @override
   void dispose() {
+    // 退出播放页恢复竖屏。
+    OrientationUtils.lockPortrait();
     _controller?.dispose();
     super.dispose();
   }

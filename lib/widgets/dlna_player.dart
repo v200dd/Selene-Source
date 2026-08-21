@@ -74,16 +74,15 @@ class _DLNAPlayerState extends State<DLNAPlayer> {
   }
 
   void _setPortraitOrientation() {
+    // 只留正向竖屏。允许 portraitDown 时，手机倒过来拿画面就会跟着倒 180°。
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
     ]);
   }
 
   void _restoreOrientation() {
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
