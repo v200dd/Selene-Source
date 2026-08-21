@@ -38,6 +38,7 @@ class _UserMenuState extends State<UserMenu> {
   bool _preferSpeedTest = true;
   bool _localSearch = false;
   bool _isLocalMode = false;
+  String _playbackCacheMode = '默认';
 
   @override
   void initState() {
@@ -66,6 +67,7 @@ class _UserMenuState extends State<UserMenu> {
     final m3u8ProxyUrl = await UserDataService.getM3u8ProxyUrl();
     final preferSpeedTest = await UserDataService.getPreferSpeedTest();
     final localSearch = await UserDataService.getLocalSearch();
+    final playbackCacheMode = await UserDataService.getPlaybackCacheMode();
 
     if (mounted) {
       setState(() {
@@ -77,6 +79,11 @@ class _UserMenuState extends State<UserMenu> {
         _m3u8ProxyUrl = m3u8ProxyUrl;
         _preferSpeedTest = preferSpeedTest;
         _localSearch = localSearch;
+        _playbackCacheMode = switch (playbackCacheMode) {
+          'enhanced' => '增强',
+          'maximum' => '强力',
+          _ => '默认',
+        };
       });
     }
   }
@@ -814,6 +821,28 @@ class _UserMenuState extends State<UserMenu> {
                         });
                       },
                       icon: LucideIcons.zap,
+                    ),
+                    Container(
+                      height: 1,
+                      color: widget.isDarkMode
+                          ? const Color(0xFF374151)
+                          : const Color(0xFFe5e7eb),
+                    ),
+                    _buildOptionSelector(
+                      title: '播放缓存优化',
+                      currentValue: _playbackCacheMode,
+                      options: const ['默认', '增强', '强力'],
+                      onChanged: (value) async {
+                        final mode = switch (value) {
+                          '增强' => 'enhanced',
+                          '强力' => 'maximum',
+                          _ => 'default',
+                        };
+                        await UserDataService.savePlaybackCacheMode(mode);
+                        if (!mounted) return;
+                        setState(() => _playbackCacheMode = value);
+                      },
+                      icon: LucideIcons.gauge,
                     ),
                     // 本地搜索选项（本地模式下不显示）
                     if (!_isLocalMode) ...[

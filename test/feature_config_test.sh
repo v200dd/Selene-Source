@@ -9,8 +9,45 @@ if ! grep -q "https://cf.motv.200996.xyz" \
   exit 1
 fi
 
-if grep -q "服务器地址" "$repo_root/lib/screens/login_screen.dart"; then
-  echo "login screen must not show a server URL field"
+if ! grep -q "更换地址" "$repo_root/lib/screens/login_screen.dart"; then
+  echo "login screen must offer a collapsed server URL switcher"
+  exit 1
+fi
+
+if ! grep -q "_showServerUrlField" "$repo_root/lib/screens/login_screen.dart"; then
+  echo "login screen must keep the server URL field hidden by default"
+  exit 1
+fi
+
+if grep -q "_serverUrlController.text =\s*$" \
+  "$repo_root/lib/screens/login_screen.dart" && \
+  grep -q "userData\['serverUrl'\] ?? UserDataService.defaultServerUrl" \
+  "$repo_root/lib/screens/login_screen.dart"; then
+  echo "login screen must never prefill the built-in default server URL"
+  exit 1
+fi
+
+if ! grep -q "/api/danmu-external" \
+  "$repo_root/lib/services/danmaku_service.dart"; then
+  echo "danmaku service must read danmaku from the user's own site endpoint"
+  exit 1
+fi
+
+if ! grep -q "auto_pip_enabled" \
+  "$repo_root/lib/services/user_data_service.dart"; then
+  echo "auto Picture in Picture must be a persisted preference"
+  exit 1
+fi
+
+if ! grep -q "willResignActiveNotification" \
+  "$repo_root/ios/Runner/AppDelegate.swift"; then
+  echo "iOS must enter Picture in Picture when leaving for the home screen"
+  exit 1
+fi
+
+if ! grep -q "/api/shortdrama/list" \
+  "$repo_root/lib/services/short_drama_service.dart"; then
+  echo "short drama service must use the site shortdrama endpoints"
   exit 1
 fi
 
@@ -51,7 +88,12 @@ if ! grep -q "Selene-iOS-unsigned.ipa" "$workflow"; then
   exit 1
 fi
 
-if ! grep -q "Payload/Runner.app/" "$workflow"; then
-  echo "iOS workflow must verify the IPA Payload/Runner.app structure"
+if ! grep -q "Payload/tv.app/" "$workflow"; then
+  echo "iOS workflow must verify the IPA Payload/tv.app structure"
+  exit 1
+fi
+
+if ! grep -q "softprops/action-gh-release" "$workflow"; then
+  echo "iOS workflow must publish the IPA to a GitHub Release"
   exit 1
 fi

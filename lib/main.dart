@@ -48,7 +48,7 @@ void main() async {
       win.minSize = minSize;
       win.size = initialSize;
       win.alignment = Alignment.center;
-      win.title = "Selene";
+      win.title = "tv";
       win.show();
     });
   }
@@ -64,7 +64,7 @@ class SeleneApp extends StatelessWidget {
       child: Consumer<ThemeService>(
         builder: (context, themeService, child) {
           return MaterialApp(
-            title: 'Selene',
+            title: 'tv',
             debugShowCheckedModeBanner: false,
             theme: themeService.lightTheme,
             darkTheme: themeService.darkTheme,
@@ -122,11 +122,13 @@ class _AppWrapperState extends State<AppWrapper> {
                   await SubscriptionService.parseSubscriptionContent(
                       response.body);
               if (content != null) {
-                if (content.searchResources != null && content.searchResources!.isNotEmpty) {
+                if (content.searchResources != null &&
+                    content.searchResources!.isNotEmpty) {
                   await LocalModeStorageService.saveSearchSources(
                       content.searchResources!);
                 }
-                if (content.liveSources != null && content.liveSources!.isNotEmpty) {
+                if (content.liveSources != null &&
+                    content.liveSources!.isNotEmpty) {
                   await LocalModeStorageService.saveLiveSources(
                       content.liveSources!);
                 }

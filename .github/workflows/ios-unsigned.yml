@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ios-unsigned-${{ github.ref }}
@@ -61,10 +61,10 @@ jobs:
         run: |
           rm -rf build/ios/Payload
           mkdir -p build/ios/Payload
-          ditto build/ios/iphoneos/Runner.app build/ios/Payload/Runner.app
-          ditto -c -k --sequesterRsrc --keepParent build/ios/Payload build/ios/Selene-iOS-unsigned.ipa
+          ditto build/ios/iphoneos/Runner.app build/ios/Payload/tv.app
+          (cd build/ios && zip -qry Selene-iOS-unsigned.ipa Payload)
           unzip -Z1 build/ios/Selene-iOS-unsigned.ipa > build/ios/ipa-contents.txt
-          grep -Fxq 'Payload/Runner.app/' build/ios/ipa-contents.txt
+          grep -Fxq 'Payload/tv.app/' build/ios/ipa-contents.txt
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -73,3 +73,20 @@ jobs:
           path: build/ios/Selene-iOS-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
+
+      # Artifact 需要登录 GitHub 才能下载，Release 是公开直链，手机上也能直接装。
+      - name: Publish IPA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-unsigned-${{ github.run_number }}
+          name: "tv iOS 未签名包 #${{ github.run_number }}"
+          body: |
+            未签名 iOS 包，需要用 Sideloadly / AltStore / TrollStore 之类的工具自签安装。
+
+            - 提交：${{ github.sha }}
+            - 构建：Actions run #${{ github.run_number }}
+          files: |
+            build/ios/Selene-iOS-unsigned.ipa
+            build/ios/Selene-iOS-unsigned.app.zip
+          draft: false
+          prerelease: false

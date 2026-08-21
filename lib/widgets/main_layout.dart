@@ -465,7 +465,7 @@ class _MainLayoutState extends State<MainLayout> {
               onTap: widget.onHomeTap,
               behavior: HitTestBehavior.opaque,
               child: Text(
-                'Selene',
+                'tv',
                 style: FontUtils.sourceCodePro(
                   fontSize: 24,
                   fontWeight: FontWeight.w400,
@@ -890,6 +890,8 @@ class _MainLayoutState extends State<MainLayout> {
       {'icon': LucideIcons.cat, 'label': '动漫'},
       {'icon': LucideIcons.clover, 'label': '综艺'},
       {'icon': LucideIcons.radio, 'label': '直播'},
+      {'icon': LucideIcons.film, 'label': '短剧'},
+      {'icon': LucideIcons.users, 'label': '观影房'},
     ];
 
     final isTablet = DeviceUtils.isTablet(context);
@@ -914,94 +916,96 @@ class _MainLayoutState extends State<MainLayout> {
         top: 8,
         bottom: MediaQuery.of(context).padding.bottom + 8, // 手动处理底部安全区域
       ),
-      child: Row(
-        mainAxisAlignment:
-            isTablet ? MainAxisAlignment.center : MainAxisAlignment.spaceEvenly,
-        children: [
-          // 平板模式下添加左侧空白
-          if (isTablet) const Spacer(flex: 3),
-
-          // 导航按钮
-          ...navItems.asMap().entries.expand((entry) {
-            int index = entry.key;
-            Map<String, dynamic> item = entry.value;
-            bool isSelected =
-                !widget.isSearchMode && widget.currentBottomNavIndex == index;
-            bool isHovered = DeviceUtils.isPC() && _hoveredNavIndex == index;
-
-            return [
-              MouseRegion(
-                cursor: DeviceUtils.isPC()
-                    ? SystemMouseCursors.click
-                    : MouseCursor.defer,
-                onEnter: DeviceUtils.isPC()
-                    ? (_) {
-                        setState(() {
-                          _hoveredNavIndex = index;
-                        });
-                      }
-                    : null,
-                onExit: DeviceUtils.isPC()
-                    ? (_) {
-                        setState(() {
-                          _hoveredNavIndex = null;
-                        });
-                      }
-                    : null,
-                child: GestureDetector(
-                  onTap: () {
-                    widget.onBottomNavChanged(index);
-                  },
-                  behavior: HitTestBehavior.opaque, // 确保整个区域都可以点击
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isTablet ? 16 : 12,
-                      vertical: 8,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          item['icon'],
-                          color: isSelected
-                              ? const Color(0xFF27ae60)
-                              : isHovered
-                                  ? const Color(0xFF52c77a) // hover 时的浅绿色
-                                  : themeService.isDarkMode
-                                      ? const Color(0xFFb0b0b0)
-                                      : const Color(0xFF7f8c8d),
-                          size: 24,
+      // 平板居中排布；手机端把宽度平均分给每一项，避免最后一项被裁切。
+      child: isTablet
+          ? Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: navItems
+                  .asMap()
+                  .entries
+                  .expand((entry) => [
+                        _buildNavItem(
+                          themeService: themeService,
+                          index: entry.key,
+                          item: entry.value,
+                          isTablet: true,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          item['label'],
-                          style: FontUtils.poppins(
-                            fontSize: 12,
-                            fontWeight:
-                                isSelected ? FontWeight.w600 : FontWeight.w400,
-                            color: isSelected
-                                ? const Color(0xFF27ae60)
-                                : isHovered
-                                    ? const Color(0xFF52c77a) // hover 时的浅绿色
-                                    : themeService.isDarkMode
-                                        ? const Color(0xFFb0b0b0)
-                                        : const Color(0xFF7f8c8d),
-                          ),
+                        if (entry.key < navItems.length - 1)
+                          const SizedBox(width: 28),
+                      ])
+                  .toList(),
+            )
+          : Row(
+              children: navItems
+                  .asMap()
+                  .entries
+                  .map((entry) => Expanded(
+                        child: _buildNavItem(
+                          themeService: themeService,
+                          index: entry.key,
+                          item: entry.value,
+                          isTablet: false,
                         ),
-                      ],
-                    ),
+                      ))
+                  .toList(),
+            ),
+    );
+  }
+
+  Widget _buildNavItem({
+    required ThemeService themeService,
+    required int index,
+    required Map<String, dynamic> item,
+    required bool isTablet,
+  }) {
+    final bool isSelected =
+        !widget.isSearchMode && widget.currentBottomNavIndex == index;
+    final bool isHovered = DeviceUtils.isPC() && _hoveredNavIndex == index;
+    final Color color = isSelected
+        ? const Color(0xFF27ae60)
+        : isHovered
+            ? const Color(0xFF52c77a) // hover 时的浅绿色
+            : themeService.isDarkMode
+                ? const Color(0xFFb0b0b0)
+                : const Color(0xFF7f8c8d);
+
+    return MouseRegion(
+      cursor: DeviceUtils.isPC() ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: DeviceUtils.isPC()
+          ? (_) => setState(() => _hoveredNavIndex = index)
+          : null,
+      onExit: DeviceUtils.isPC()
+          ? (_) => setState(() => _hoveredNavIndex = null)
+          : null,
+      child: GestureDetector(
+        onTap: () => widget.onBottomNavChanged(index),
+        behavior: HitTestBehavior.opaque, // 确保整个区域都可以点击
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isTablet ? 12 : 2,
+            vertical: 6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(item['icon'], color: color, size: isTablet ? 24 : 22),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  item['label'],
+                  maxLines: 1,
+                  softWrap: false,
+                  style: FontUtils.poppins(
+                    fontSize: isTablet ? 12 : 11,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                    color: color,
                   ),
                 ),
               ),
-              // 平板模式下在按钮之间添加间距
-              if (isTablet && index < navItems.length - 1)
-                const SizedBox(width: 36),
-            ];
-          }),
-
-          // 平板模式下添加右侧空白
-          if (isTablet) const Spacer(flex: 3),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

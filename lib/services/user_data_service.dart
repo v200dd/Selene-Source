@@ -12,7 +12,10 @@ class UserDataService {
   static const String _preferSpeedTestKey = 'prefer_speed_test';
   static const String _localSearchKey = 'local_search';
   static const String _isLocalModeKey = 'is_local_mode';
-  
+  static const String _playbackCacheModeKey = 'playback_cache_mode';
+  static const String _danmakuEnabledKey = 'danmaku_enabled';
+  static const String _autoPipKey = 'auto_pip_enabled';
+
   // 内存缓存
   static bool? _isLocalModeCache;
 
@@ -32,7 +35,21 @@ class UserDataService {
 
   // 获取服务器地址
   static Future<String?> getServerUrl() async {
-    return defaultServerUrl;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_serverUrlKey)?.trim();
+    if (saved == null || saved.isEmpty) return defaultServerUrl;
+    return saved.replaceAll(RegExp(r'/+$'), '');
+  }
+
+  // 单独保存服务器地址（登录页可自定义）
+  static Future<void> saveServerUrl(String serverUrl) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cleaned = serverUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    if (cleaned.isEmpty) {
+      await prefs.remove(_serverUrlKey);
+      return;
+    }
+    await prefs.setString(_serverUrlKey, cleaned);
   }
 
   // 获取用户名
@@ -62,7 +79,6 @@ class UserDataService {
   // 清除用户数据
   static Future<void> clearUserData() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_serverUrlKey);
     await prefs.remove(_usernameKey);
     await prefs.remove(_passwordKey);
     await prefs.remove(_cookiesKey);
@@ -91,13 +107,13 @@ class UserDataService {
     final serverUrl = await getServerUrl();
     final username = await getUsername();
     final password = await getPassword();
-    
-    return serverUrl != null && 
-           serverUrl.isNotEmpty && 
-           username != null && 
-           username.isNotEmpty && 
-           password != null && 
-           password.isNotEmpty;
+
+    return serverUrl != null &&
+        serverUrl.isNotEmpty &&
+        username != null &&
+        username.isNotEmpty &&
+        password != null &&
+        password.isNotEmpty;
   }
 
   // 保存豆瓣数据源设置（存储key值）
@@ -120,7 +136,8 @@ class UserDataService {
   }
 
   // 保存豆瓣图片源设置（存储key值）
-  static Future<void> saveDoubanImageSource(String imageSourceDisplayName) async {
+  static Future<void> saveDoubanImageSource(
+      String imageSourceDisplayName) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _getDoubanImageSourceKeyFromDisplayName(imageSourceDisplayName);
     await prefs.setString(_doubanImageSourceKey, key);
@@ -252,9 +269,58 @@ class UserDataService {
     _isLocalModeCache = value; // 缓存到内存
     return value;
   }
-  
+
   // 同步获取本地模式设置（从内存缓存读取）
   static bool getIsLocalModeSync() {
     return _isLocalModeCache ?? false;
+  }
+
+  /// 播放缓存模式：default（默认）、enhanced（增强）、maximum（强力）。
+  static Future<String> getPlaybackCacheMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_playbackCacheModeKey) ?? 'default';
+    return const {'default', 'enhanced', 'maximum'}.contains(value)
+        ? value
+        : 'default';
+  }
+
+  static Future<void> savePlaybackCacheMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = const {'default', 'enhanced', 'maximum'}.contains(mode)
+        ? mode
+        : 'default';
+    await prefs.setString(_playbackCacheModeKey, value);
+  }
+
+  static Future<int> getPlaybackBufferSize() async {
+    switch (await getPlaybackCacheMode()) {
+      case 'enhanced':
+        return 128 * 1024 * 1024;
+      case 'maximum':
+        return 256 * 1024 * 1024;
+      default:
+        return 32 * 1024 * 1024;
+    }
+  }
+
+  static Future<bool> getDanmakuEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_danmakuEnabledKey) ?? true;
+  }
+
+  static Future<void> saveDanmakuEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_danmakuEnabledKey, enabled);
+  }
+
+  /// 回到手机主屏幕时自动进入画中画（默认开启）。
+  static Future<bool> getAutoPipEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_autoPipKey) ?? true;
+  }
+
+  static Future<void> saveAutoPipEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoPipKey, enabled);
   }
 }

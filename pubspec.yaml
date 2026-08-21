@@ -67,6 +67,7 @@ dependencies:
   xml: ^6.5.0
   intl: ^0.20.2
   pip: ^0.0.3
+  socket_io_client: ^3.1.2
 
 dev_dependencies:
   flutter_test:
@@ -129,18 +130,18 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "logo.png"
+  image_path: "tv.png"
   remove_alpha_ios: true  # 移除 iOS 图标的 alpha 通道
   min_sdk_android: 21 # android min sdk min:16, default 21
   web:
     generate: true
-    image_path: "logo.png"
+    image_path: "tv.png"
     background_color: "#hexcode"
     theme_color: "#hexcode"
   windows:
     generate: true
-    image_path: "logo.png"
+    image_path: "tv.png"
     icon_size: 48 # min:48, max:256, default: 48
   macos:
     generate: true
-    image_path: "logo.png"
+    image_path: "tv.png"

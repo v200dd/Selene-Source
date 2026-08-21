@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pip/pip.dart';
+import '../models/danmaku_comment.dart';
+import '../services/danmaku_service.dart';
+import '../services/user_data_service.dart';
 import 'danmaku_overlay.dart';
 import 'mobile_player_controls.dart';
 import 'pc_player_controls.dart';
@@ -31,6 +34,10 @@ class VideoPlayerWidget extends StatefulWidget {
   final bool live;
   final Function(bool isPipMode)? onPipModeChanged;
 
+  /// 弹幕匹配用（主站 `/api/danmu-external` 会用它提高命中率）。
+  final String? doubanId;
+  final String? year;
+
   const VideoPlayerWidget({
     super.key,
     this.surface = VideoPlayerSurface.mobile,
@@ -52,6 +59,8 @@ class VideoPlayerWidget extends StatefulWidget {
     this.onExitFullScreen,
     this.live = false,
     this.onPipModeChanged,
+    this.doubanId,
+    this.year,
   });
 
   @override
@@ -141,10 +150,15 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   bool _playerDisposed = false;
   VoidCallback? _exitWebFullscreenCallback;
   final Pip _pip = Pip();
-  static const MethodChannel _iosPipChannel =
-      MethodChannel('selene/ios_pip');
+  static const MethodChannel _iosPipChannel = MethodChannel('selene/ios_pip');
   bool _isPipMode = false;
+  bool _pipTransitionInProgress = false;
+  bool _autoPipEnabled = true;
+  Timer? _pipSyncTimer;
   bool _danmakuEnabled = true;
+  bool _isLoadingDanmaku = false;
+  String? _danmakuError;
+  String? _danmakuSource;
   final List<DanmakuItem> _danmakuItems = [];
   int _nextDanmakuId = 0;
 
@@ -158,6 +172,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     _setupPip();
     _registerPipObserver();
     _registerIosPipHandler();
+    _loadAutoPipPreference();
+    _loadDanmakuPreference();
     widget.onControllerCreated?.call(VideoPlayerWidgetController._(this));
   }
 
@@ -176,7 +192,10 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     if (_playerDisposed) {
       return;
     }
-    _player = Player();
+    final bufferSize = await UserDataService.getPlaybackBufferSize();
+    if (_playerDisposed) return;
+    _player =
+        Player(configuration: PlayerConfiguration(bufferSize: bufferSize));
     _videoController = VideoController(_player!);
     _setupPlayerListeners();
     if (_currentUrl != null) {
@@ -204,8 +223,11 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
         ),
         play: true,
       );
+      await _applyVideoOrientationFix();
+      unawaited(_loadDanmaku());
       if (!mounted || _playerDisposed || _player == null) return;
       await _player!.setRate(_playbackSpeed.value);
+      unawaited(_prepareIosPip());
       if (!mounted || _playerDisposed) return;
       setState(() {
         _hasCompleted = false;
@@ -306,8 +328,11 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
         ),
         play: true,
       );
+      await _applyVideoOrientationFix();
+      unawaited(_loadDanmaku());
       _playbackSpeed.value = currentSpeed;
       await _player!.setRate(currentSpeed);
+      unawaited(_prepareIosPip());
       if (mounted) {
         setState(() {
           _hasCompleted = false;
@@ -340,11 +365,96 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     await _player?.setRate(speed);
   }
 
+  Future<void> _applyVideoOrientationFix() async {
+    final platform = _player?.platform;
+    if (platform is NativePlayer) {
+      try {
+        // Some providers incorrectly mark the stream as rotated 180 degrees.
+        // Keep device orientation free while neutralising that video metadata.
+        await platform.setProperty('video-rotate', '0');
+      } catch (error) {
+        debugPrint('VideoPlayerWidget: unable to reset video rotation: $error');
+      }
+    }
+  }
+
+  Future<void> _loadDanmakuPreference() async {
+    final enabled = await UserDataService.getDanmakuEnabled();
+    if (mounted) setState(() => _danmakuEnabled = enabled);
+  }
+
+  Future<void> _loadDanmaku({bool bypassCache = false}) async {
+    final url = _currentUrl;
+    final title = widget.videoTitle?.trim() ?? '';
+    if (url == null || url.trim().isEmpty || title.isEmpty || _playerDisposed) {
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _isLoadingDanmaku = true;
+        _danmakuError = null;
+      });
+    }
+    try {
+      final result = await DanmakuService.loadForVideo(
+        url: url,
+        title: title,
+        episodeIndex: widget.currentEpisodeIndex ?? 0,
+        doubanId: widget.doubanId,
+        year: widget.year,
+        bypassCache: bypassCache,
+      );
+      if (!mounted || _playerDisposed) return;
+      _applyDanmakuResult(result);
+    } catch (error) {
+      debugPrint('VideoPlayerWidget: danmaku load failed: $error');
+      if (mounted) {
+        setState(() {
+          _isLoadingDanmaku = false;
+          _danmakuError = '弹幕服务暂不可用';
+          _danmakuSource = null;
+          _danmakuItems.clear();
+        });
+      }
+    }
+  }
+
+  void _applyDanmakuResult(DanmakuResult result) {
+    _danmakuItems
+      ..clear()
+      ..addAll(result.comments.map(_toDanmakuItem));
+    setState(() {
+      _isLoadingDanmaku = false;
+      _danmakuSource = result.comments.isEmpty ? null : result.source;
+      _danmakuError = result.comments.isEmpty
+          ? (result.error?.isNotEmpty == true ? result.error : '当前视频暂无匹配弹幕')
+          : null;
+    });
+  }
+
+  DanmakuItem _toDanmakuItem(DanmakuComment comment) => DanmakuItem(
+        id: _nextDanmakuId++,
+        text: comment.text,
+        position: comment.time,
+        color: comment.color,
+        mode: comment.mode,
+      );
+
   void _exitWebFullscreen() {
     _exitWebFullscreenCallback?.call();
   }
 
   void _setupPip() {
+    if (Platform.isIOS) {
+      // iOS 侧在原生预备一个同源的影子播放器，见 AppDelegate.swift。
+      unawaited(_prepareIosPip());
+      _pipSyncTimer?.cancel();
+      _pipSyncTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => unawaited(_syncIosPipPosition()),
+      );
+      return;
+    }
     if (!Platform.isAndroid) return;
     _pip.setup(const PipOptions(
       autoEnterEnabled: false,
@@ -354,6 +464,50 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       preferredContentHeight: 270,
       controlStyle: 2,
     ));
+  }
+
+  Future<void> _loadAutoPipPreference() async {
+    final enabled = await UserDataService.getAutoPipEnabled();
+    if (!mounted) return;
+    setState(() => _autoPipEnabled = enabled);
+    if (Platform.isIOS) {
+      try {
+        await _iosPipChannel
+            .invokeMethod<void>('setAutoEnter', {'enabled': enabled});
+      } catch (error) {
+        debugPrint('VideoPlayerWidget: setAutoEnter failed: $error');
+      }
+    }
+  }
+
+  /// 让原生侧提前建好 AVPlayer + PiP 控制器：回到桌面时才来得及自动进入画中画。
+  Future<void> _prepareIosPip() async {
+    if (!Platform.isIOS || _currentUrl == null) return;
+    try {
+      await _iosPipChannel.invokeMethod<bool>('prepare', {
+        'url': _currentUrl,
+        'headers': _currentHeaders ?? const <String, String>{},
+        'positionMs': _player?.state.position.inMilliseconds ?? 0,
+        'playing': _player?.state.playing ?? false,
+        'autoEnter': _autoPipEnabled,
+      });
+    } catch (error) {
+      debugPrint('VideoPlayerWidget: iOS PiP prepare failed: $error');
+    }
+  }
+
+  Future<void> _syncIosPipPosition() async {
+    if (!Platform.isIOS || _playerDisposed || _isPipMode) return;
+    final player = _player;
+    if (player == null || _currentUrl == null) return;
+    try {
+      await _iosPipChannel.invokeMethod<void>('updatePosition', {
+        'positionMs': player.state.position.inMilliseconds,
+        'playing': player.state.playing,
+      });
+    } catch (error) {
+      debugPrint('VideoPlayerWidget: iOS PiP sync failed: $error');
+    }
   }
 
   void _registerPipObserver() {
@@ -391,6 +545,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   }
 
   Future<void> _enterPipMode() async {
+    if (_pipTransitionInProgress || _isPipMode) return;
+    _pipTransitionInProgress = true;
     debugPrint('_enterPipMode');
     try {
       if (Platform.isIOS) {
@@ -400,6 +556,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
               'url': _currentUrl,
               'headers': _currentHeaders ?? const <String, String>{},
               'positionMs': _player!.state.position.inMilliseconds,
+              'playing': true,
+              'autoEnter': _autoPipEnabled,
             }) ??
             false;
         if (!started) await _player!.play();
@@ -420,6 +578,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       } else {
         _setupPip();
       }
+    } finally {
+      _pipTransitionInProgress = false;
     }
   }
 
@@ -428,6 +588,10 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     _iosPipChannel.setMethodCallHandler((call) async {
       if (!mounted) return;
       switch (call.method) {
+        case 'willEnterPip':
+          // 原生侧要接管播放了，先把 mpv 停下来避免双声道。
+          await _player?.pause();
+          break;
         case 'started':
           setState(() => _isPipMode = true);
           widget.onPipModeChanged?.call(true);
@@ -455,30 +619,14 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   }
 
   Future<void> _showDanmakuPanel() async {
-    final textController = TextEditingController();
     var enabled = _danmakuEnabled;
+    var autoPip = _autoPipEnabled;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            void submit() {
-              final text = textController.text.trim();
-              if (text.isEmpty) return;
-              setState(() {
-                _danmakuEnabled = true;
-                _danmakuItems.add(
-                  DanmakuItem(
-                    id: _nextDanmakuId++,
-                    text: text,
-                    position: _player?.state.position ?? Duration.zero,
-                  ),
-                );
-              });
-              Navigator.of(dialogContext).pop();
-            }
-
             return AlertDialog(
               title: const Text('弹幕'),
               content: Column(
@@ -491,38 +639,54 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
                     onChanged: (value) {
                       setDialogState(() => enabled = value);
                       setState(() => _danmakuEnabled = value);
+                      unawaited(UserDataService.saveDanmakuEnabled(value));
                     },
                   ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: textController,
-                    autofocus: true,
-                    maxLength: 50,
-                    decoration: const InputDecoration(
-                      labelText: '发送弹幕',
-                      hintText: '输入内容',
-                      border: OutlineInputBorder(),
+                  if (Platform.isAndroid || Platform.isIOS)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('回到桌面自动画中画'),
+                      value: autoPip,
+                      onChanged: (value) {
+                        setDialogState(() => autoPip = value);
+                        setState(() => _autoPipEnabled = value);
+                        unawaited(UserDataService.saveAutoPipEnabled(value));
+                        if (Platform.isIOS) {
+                          unawaited(_iosPipChannel.invokeMethod<void>(
+                              'setAutoEnter', {'enabled': value}));
+                        }
+                      },
                     ),
-                    onSubmitted: (_) => submit(),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isLoadingDanmaku
+                        ? '正在匹配当前视频弹幕…'
+                        : _danmakuError ??
+                            '已加载 ${_danmakuItems.length} 条弹幕'
+                                '${_danmakuSource == null ? '' : '（${_danmakuSource!}）'}',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
               actions: [
-                if (_danmakuItems.isNotEmpty)
-                  TextButton(
-                    onPressed: () {
-                      setState(_danmakuItems.clear);
-                      Navigator.of(dialogContext).pop();
-                    },
-                    child: const Text('清空'),
-                  ),
+                TextButton(
+                  onPressed: _isLoadingDanmaku
+                      ? null
+                      : () {
+                          Navigator.of(dialogContext).pop();
+                          unawaited(_showDanmakuMatchPicker());
+                        },
+                  child: const Text('手动匹配'),
+                ),
+                TextButton(
+                  onPressed: _isLoadingDanmaku
+                      ? null
+                      : () => unawaited(_loadDanmaku(bypassCache: true)),
+                  child: const Text('重新匹配'),
+                ),
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  onPressed: submit,
-                  child: const Text('发送'),
+                  child: const Text('关闭'),
                 ),
               ],
             );
@@ -530,7 +694,70 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
         );
       },
     );
-    textController.dispose();
+  }
+
+  /// 自动匹配不准时，让用户从主站搜索结果里手动挑一集。
+  Future<void> _showDanmakuMatchPicker() async {
+    final title = widget.videoTitle?.trim() ?? '';
+    if (title.isEmpty) return;
+
+    setState(() => _isLoadingDanmaku = true);
+    List<DanmakuMatch> matches;
+    try {
+      matches = await DanmakuService.searchMatches(title);
+    } catch (error) {
+      debugPrint('VideoPlayerWidget: danmaku search failed: $error');
+      matches = const [];
+    }
+    if (!mounted) return;
+    setState(() => _isLoadingDanmaku = false);
+
+    if (matches.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('主站没有返回可匹配的弹幕剧集')),
+      );
+      return;
+    }
+
+    final selected = await showDialog<DanmakuMatch>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('选择弹幕剧集'),
+        content: SizedBox(
+          width: 360,
+          height: 360,
+          child: ListView.builder(
+            itemCount: matches.length,
+            itemBuilder: (context, index) => ListTile(
+              dense: true,
+              title: Text(matches[index].label,
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+              onTap: () => Navigator.of(dialogContext).pop(matches[index]),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    setState(() {
+      _isLoadingDanmaku = true;
+      _danmakuError = null;
+    });
+    final result = await DanmakuService.loadByEpisodeId(
+      episodeId: selected.episodeId,
+      title: title,
+      episodeIndex: widget.currentEpisodeIndex ?? 0,
+    );
+    if (!mounted || _playerDisposed) return;
+    _applyDanmakuResult(result);
   }
 
   Future<void> _externalDispose() async {
@@ -563,7 +790,16 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     }
     switch (state) {
       case AppLifecycleState.paused:
+        if (Platform.isAndroid &&
+            !_isPipMode &&
+            (_player?.state.playing ?? false)) {
+          unawaited(_enterPipMode());
+        }
+        break;
       case AppLifecycleState.inactive:
+        // iOS 由原生的 willResignActive 直接发起画中画（此时仍在前台，系统才允许），
+        // 见 ios/Runner/AppDelegate.swift，这里不再重复触发。
+        break;
       case AppLifecycleState.hidden:
         break;
       case AppLifecycleState.resumed:
@@ -576,6 +812,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pipSyncTimer?.cancel();
     if (Platform.isAndroid || Platform.isIOS) {
       if (Platform.isAndroid) {
         _pip.unregisterStateChangedObserver();
@@ -600,55 +837,54 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
               controls: (state) {
                 final controls = widget.surface == VideoPlayerSurface.desktop
                     ? PCPlayerControls(
-                            state: state,
-                            player: _player!,
-                            onBackPressed: widget.onBackPressed,
-                            onNextEpisode: widget.onNextEpisode,
-                            onPause: widget.onPause,
-                            videoUrl: _currentUrl ?? '',
-                            isLastEpisode: widget.isLastEpisode,
-                            isLoadingVideo: _isLoadingVideo,
-                            onCastStarted: widget.onCastStarted,
-                            videoTitle: widget.videoTitle,
-                            currentEpisodeIndex: widget.currentEpisodeIndex,
-                            totalEpisodes: widget.totalEpisodes,
-                            sourceName: widget.sourceName,
-                            onWebFullscreenChanged:
-                                widget.onWebFullscreenChanged,
-                            onExitWebFullscreenCallbackReady: (callback) {
-                              _exitWebFullscreenCallback = callback;
-                            },
-                            onExitFullScreen: widget.onExitFullScreen,
-                            live: widget.live,
-                            playbackSpeedListenable: _playbackSpeed,
-                            onSetSpeed: _setPlaybackSpeed,
-                            danmakuEnabled: _danmakuEnabled,
-                            onShowDanmakuPanel: _showDanmakuPanel,
+                        state: state,
+                        player: _player!,
+                        onBackPressed: widget.onBackPressed,
+                        onNextEpisode: widget.onNextEpisode,
+                        onPause: widget.onPause,
+                        videoUrl: _currentUrl ?? '',
+                        isLastEpisode: widget.isLastEpisode,
+                        isLoadingVideo: _isLoadingVideo,
+                        onCastStarted: widget.onCastStarted,
+                        videoTitle: widget.videoTitle,
+                        currentEpisodeIndex: widget.currentEpisodeIndex,
+                        totalEpisodes: widget.totalEpisodes,
+                        sourceName: widget.sourceName,
+                        onWebFullscreenChanged: widget.onWebFullscreenChanged,
+                        onExitWebFullscreenCallbackReady: (callback) {
+                          _exitWebFullscreenCallback = callback;
+                        },
+                        onExitFullScreen: widget.onExitFullScreen,
+                        live: widget.live,
+                        playbackSpeedListenable: _playbackSpeed,
+                        onSetSpeed: _setPlaybackSpeed,
+                        danmakuEnabled: _danmakuEnabled,
+                        onShowDanmakuPanel: _showDanmakuPanel,
                       )
                     : MobilePlayerControls(
-                            player: _player!,
-                            state: state,
-                            onControlsVisibilityChanged: (_) {},
-                            onBackPressed: widget.onBackPressed,
-                            onFullscreenChange: (_) {},
-                            onNextEpisode: widget.onNextEpisode,
-                            onPause: widget.onPause,
-                            videoUrl: _currentUrl ?? '',
-                            isLastEpisode: widget.isLastEpisode,
-                            isLoadingVideo: _isLoadingVideo,
-                            onCastStarted: widget.onCastStarted,
-                            videoTitle: widget.videoTitle,
-                            currentEpisodeIndex: widget.currentEpisodeIndex,
-                            totalEpisodes: widget.totalEpisodes,
-                            sourceName: widget.sourceName,
-                            onExitFullScreen: widget.onExitFullScreen,
-                            live: widget.live,
-                            playbackSpeedListenable: _playbackSpeed,
-                            onSetSpeed: _setPlaybackSpeed,
-                            onEnterPipMode: _enterPipMode,
-                            isPipMode: _isPipMode,
-                            danmakuEnabled: _danmakuEnabled,
-                            onShowDanmakuPanel: _showDanmakuPanel,
+                        player: _player!,
+                        state: state,
+                        onControlsVisibilityChanged: (_) {},
+                        onBackPressed: widget.onBackPressed,
+                        onFullscreenChange: (_) {},
+                        onNextEpisode: widget.onNextEpisode,
+                        onPause: widget.onPause,
+                        videoUrl: _currentUrl ?? '',
+                        isLastEpisode: widget.isLastEpisode,
+                        isLoadingVideo: _isLoadingVideo,
+                        onCastStarted: widget.onCastStarted,
+                        videoTitle: widget.videoTitle,
+                        currentEpisodeIndex: widget.currentEpisodeIndex,
+                        totalEpisodes: widget.totalEpisodes,
+                        sourceName: widget.sourceName,
+                        onExitFullScreen: widget.onExitFullScreen,
+                        live: widget.live,
+                        playbackSpeedListenable: _playbackSpeed,
+                        onSetSpeed: _setPlaybackSpeed,
+                        onEnterPipMode: _enterPipMode,
+                        isPipMode: _isPipMode,
+                        danmakuEnabled: _danmakuEnabled,
+                        onShowDanmakuPanel: _showDanmakuPanel,
                       );
                 return Stack(
                   children: [

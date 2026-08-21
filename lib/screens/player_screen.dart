@@ -1070,6 +1070,10 @@ class _PlayerScreenState extends State<PlayerScreen>
             currentEpisodeIndex: currentEpisodeIndex,
             totalEpisodes: totalEpisodes,
             sourceName: currentDetail?.sourceName ?? currentSource,
+            doubanId: videoDoubanID > 0 ? videoDoubanID.toString() : null,
+            year: (videoYear.isEmpty || videoYear == 'unknown')
+                ? null
+                : videoYear,
             onWebFullscreenChanged: (isWebFullscreen) {
               setState(() {
                 _isWebFullscreen = isWebFullscreen;

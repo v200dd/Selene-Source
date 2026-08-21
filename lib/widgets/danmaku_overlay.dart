@@ -8,11 +8,15 @@ class DanmakuItem {
     required this.id,
     required this.text,
     required this.position,
+    this.color = 0xFFFFFFFF,
+    this.mode = 1,
   });
 
   final int id;
   final String text;
   final Duration position;
+  final int color;
+  final int mode;
 }
 
 class DanmakuOverlay extends StatefulWidget {
@@ -76,10 +80,8 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
       child: IgnorePointer(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final laneCount = (constraints.maxHeight * 0.55 / 30)
-                .floor()
-                .clamp(1, 8)
-                .toInt();
+            final laneCount =
+                (constraints.maxHeight * 0.55 / 30).floor().clamp(1, 8).toInt();
             final activeItems = widget.items.where((item) {
               final elapsed = _position - item.position;
               return !elapsed.isNegative && elapsed <= _visibleDuration;
@@ -96,22 +98,28 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
                   final textWidth = (item.text.runes.length * 18.0)
                       .clamp(80.0, 420.0)
                       .toDouble();
-                  final left =
-                      constraints.maxWidth -
-                      progress * (constraints.maxWidth + textWidth);
+                  final isTopOrBottom = item.mode == 4 || item.mode == 5;
+                  final left = isTopOrBottom
+                      ? (constraints.maxWidth - textWidth) / 2
+                      : constraints.maxWidth -
+                          progress * (constraints.maxWidth + textWidth);
                   final lane = item.id % laneCount;
 
                   return Positioned(
                     left: left,
-                    top: 12 + lane * 30.0,
+                    top: item.mode == 4
+                        ? constraints.maxHeight - 42 - lane * 30.0
+                        : item.mode == 5
+                            ? 12 + lane * 30.0
+                            : 12 + lane * 30.0,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 420),
                       child: Text(
                         item.text,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: Color(item.color | 0xFF000000),
                           fontSize: 17,
                           fontWeight: FontWeight.w600,
                           shadows: [

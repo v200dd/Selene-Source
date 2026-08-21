@@ -18,9 +18,13 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _serverUrlController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
+
+  /// 「更换地址」是否展开。默认收起，页面上只有账号和密码。
+  bool _showServerUrlField = false;
   bool _isLoading = false;
   bool _isFormValid = false;
 
@@ -35,6 +39,11 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loadSavedCredentials() async {
     final userData = await UserDataService.getAllUserData();
     if (!mounted) return;
+    // 只回填用户自己填过的地址；默认地址永不显示，留空即代表使用默认。
+    final saved = userData['serverUrl']?.trim() ?? '';
+    _serverUrlController.text =
+        saved.isEmpty || saved == UserDataService.defaultServerUrl ? '' : saved;
+    _showServerUrlField = _serverUrlController.text.isNotEmpty;
     _usernameController.text = userData['username'] ?? '';
     _passwordController.text = userData['password'] ?? '';
     _validateForm();
@@ -42,14 +51,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _validateForm() {
     if (!mounted) return;
-    final valid =
-        _usernameController.text.trim().isNotEmpty &&
+    final valid = _usernameController.text.trim().isNotEmpty &&
         _passwordController.text.isNotEmpty;
     if (valid != _isFormValid) setState(() => _isFormValid = valid);
   }
 
   @override
   void dispose() {
+    _serverUrlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -84,7 +93,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
     try {
-      const baseUrl = UserDataService.defaultServerUrl;
+      final entered = _serverUrlController.text.trim();
+      final baseUrl = _normalizeServerUrl(
+        entered.isEmpty ? UserDataService.defaultServerUrl : entered,
+      );
       final response = await http
           .post(
             Uri.parse('$baseUrl/api/login'),
@@ -126,6 +138,15 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = false);
       _showToast('网络异常', const Color(0xFFe74c3c));
     }
+  }
+
+  /// 补全协议并去掉末尾斜杠，避免用户只输入域名时请求失败。
+  String _normalizeServerUrl(String value) {
+    var url = value.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://$url';
+    }
+    return url.replaceAll(RegExp(r'/+$'), '');
   }
 
   @override
@@ -177,7 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          'Selene',
+          'tv',
           style: FontUtils.sourceCodePro(
             fontSize: 42,
             fontWeight: FontWeight.w400,
@@ -258,6 +279,38 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
               ),
+              const SizedBox(height: 12),
+              // 「更换地址」：不点开不显示输入框；留空即使用内置默认地址。
+              Align(
+                alignment: Alignment.center,
+                child: TextButton(
+                  onPressed: () => setState(
+                      () => _showServerUrlField = !_showServerUrlField),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF7f8c8d),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  child: Text(
+                    _showServerUrlField ? '收起' : '更换地址',
+                    style: FontUtils.poppins(fontSize: 13),
+                  ),
+                ),
+              ),
+              if (_showServerUrlField) ...[
+                const SizedBox(height: 4),
+                _buildTextField(
+                  controller: _serverUrlController,
+                  label: '服务器地址',
+                  hint: '留空使用默认地址',
+                  icon: Icons.link,
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _handleLogin(),
+                  // 允许留空：留空就走内置默认地址。
+                  validator: (_) => null,
+                ),
+              ],
             ],
           ),
         ),
@@ -274,12 +327,14 @@ class _LoginScreenState extends State<LoginScreen> {
     bool obscureText = false,
     Widget? suffixIcon,
     TextInputAction? textInputAction,
+    TextInputType? keyboardType,
     ValueChanged<String>? onSubmitted,
   }) {
     return TextFormField(
       controller: controller,
       obscureText: obscureText,
       textInputAction: textInputAction,
+      keyboardType: keyboardType,
       onFieldSubmitted: onSubmitted,
       validator: validator,
       style: FontUtils.poppins(fontSize: 16, color: const Color(0xFF2c3e50)),
