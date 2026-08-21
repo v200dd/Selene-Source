@@ -397,23 +397,22 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     if (mounted) setState(() => _danmakuEnabled = enabled);
   }
 
-  /// 进入全屏：隐藏系统 UI，但朝向仍然交给重力（竖屏 + 两个横屏都允许）。
+  /// 进入全屏：隐藏系统 UI 并转横屏（两个方向都允许，由重力决定）。
   Future<void> _onEnterNativeFullscreen() async {
     await SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.immersiveSticky,
       overlays: const [],
     );
-    await OrientationUtils.allowPlaybackRotation();
+    await OrientationUtils.forceLandscape();
   }
 
-  /// 退出全屏：恢复系统 UI，朝向依然保持播放页的可旋转集合，
-  /// 真正回到竖屏由播放页 dispose 时统一处理。
+  /// 退出全屏：恢复系统 UI 并回到竖屏。
   Future<void> _onExitNativeFullscreen() async {
     await SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
-    await OrientationUtils.allowPlaybackRotation();
+    await OrientationUtils.lockPortrait();
   }
 
   Future<void> _loadDanmaku({bool bypassCache = false}) async {

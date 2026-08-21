@@ -81,8 +81,8 @@ class _LivePlayerScreenState extends State<LivePlayerScreen>
     super.initState();
     _currentChannel = widget.channel;
     _currentSource = widget.source;
-    // 直播页同样放开旋转，退出时恢复竖屏。
-    OrientationUtils.allowPlaybackRotation();
+    // 直播页同样默认竖屏，只有点全屏才转横屏。
+    OrientationUtils.lockPortrait();
 
     // 初始化动画控制器
     _loadingAnimationController = AnimationController(

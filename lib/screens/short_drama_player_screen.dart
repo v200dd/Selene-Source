@@ -32,8 +32,8 @@ class _ShortDramaPlayerScreenState extends State<ShortDramaPlayerScreen> {
     super.initState();
     _totalEpisodes =
         widget.item.episodeCount < 1 ? 1 : widget.item.episodeCount;
-    // 跟常规播放页一致：放开旋转但不强制横屏，两个方向的横屏都允许。
-    OrientationUtils.allowPlaybackRotation();
+    // 跟常规播放页一致：默认竖屏，只有点全屏才转横屏。
+    OrientationUtils.lockPortrait();
     _loadEpisode(1);
     _refreshEpisodeCount();
   }

@@ -157,9 +157,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     )..repeat();
     // 添加应用生命周期监听器
     WidgetsBinding.instance.addObserver(this);
-    // 播放页放开旋转（不强制横屏），两个方向的横屏都允许，
-    // 这样往左或往右转手机画面都是正的。
-    OrientationUtils.allowPlaybackRotation();
+    // 进播放页保持竖屏（不自动旋转），只有点全屏按钮才转横屏。
+    OrientationUtils.lockPortrait();
   }
 
   void initParam() {

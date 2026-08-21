@@ -5,25 +5,28 @@ import 'package:flutter/services.dart';
 
 /// 屏幕朝向策略。
 ///
-/// 之前没有任何一处统一管朝向，结果出现两个问题：
-/// 1. 播放页只被允许一个方向的横屏时，用户往另一边转手机，画面就整体倒过来 180°；
-/// 2. 从播放页退回首页后，朝向没人恢复，首页一直停在横屏。
+/// 手机上只有两个状态，避免历史上出现过的三类问题：
 ///
-/// 所以这里集中成两个状态：非播放页锁竖屏，播放页放开竖屏 + 两个方向的横屏，
-/// 让系统跟着重力传感器选，用户不管往左还是往右转，画面都是正的。
+/// - **竖屏**（[lockPortrait]）：首页、列表页，以及播放页的非全屏状态。
+///   进播放页不会自动转横屏（这是用户明确要求的），退出播放页会回到竖屏，
+///   所以首页不会卡在横屏。
+/// - **横屏**（[forceLandscape]）：只有点了全屏按钮才进入。两个方向都允许，
+///   由重力传感器决定，用户往左转还是往右转画面都是正的；只给一个方向时，
+///   往反方向转就会整屏倒过来 180°。
+///
+/// 平板不参与这套限制：横屏本来就是它的主要使用姿态，交给系统默认即可。
 class OrientationUtils {
   const OrientationUtils._();
 
-  /// 播放页允许的朝向。两个横屏都要给，否则转错方向就会倒过来。
-  static const _playbackOrientations = <DeviceOrientation>[
-    DeviceOrientation.portraitUp,
+  /// 全屏允许的朝向。两个横屏都要给，否则转错方向就会倒过来。
+  static const _landscape = <DeviceOrientation>[
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ];
 
   static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
 
-  /// 平板不锁竖屏——横屏本来就是它的主要使用姿态。
+  /// 平板不锁朝向。用短边判断，避免横屏时被误判成手机。
   static bool get _isPhone {
     if (!_isMobile) return false;
     final view = PlatformDispatcher.instance.implicitView;
@@ -32,7 +35,7 @@ class OrientationUtils {
     return size.shortestSide < 600;
   }
 
-  /// 非播放页统一竖屏。退出播放页时调用，首页就会自动转回竖屏。
+  /// 回到竖屏：非播放页、播放页非全屏、以及退出全屏时。
   static Future<void> lockPortrait() async {
     if (!_isPhone) return;
     await SystemChrome.setPreferredOrientations(
@@ -40,9 +43,9 @@ class OrientationUtils {
     );
   }
 
-  /// 进播放页时放开旋转，但不主动强制横屏（用户明确要求不要自动旋转）。
-  static Future<void> allowPlaybackRotation() async {
-    if (!_isMobile) return;
-    await SystemChrome.setPreferredOrientations(_playbackOrientations);
+  /// 点全屏时转横屏。
+  static Future<void> forceLandscape() async {
+    if (!_isPhone) return;
+    await SystemChrome.setPreferredOrientations(_landscape);
   }
 }

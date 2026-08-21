@@ -139,6 +139,19 @@ if ! grep -q "onExitFullscreen" \
   exit 1
 fi
 
+# 点全屏必须真的转横屏；只放开旋转是不够的，手机竖着拿就不会转。
+if ! grep -q "OrientationUtils.forceLandscape" \
+  "$repo_root/lib/widgets/video_player_widget.dart"; then
+  echo "entering fullscreen must rotate to landscape"
+  exit 1
+fi
+
+if ! grep -q "static Future<void> forceLandscape" \
+  "$repo_root/lib/utils/orientation_utils.dart"; then
+  echo "orientation utils must expose a landscape helper"
+  exit 1
+fi
+
 if ! grep -q "Platform.isAndroid || Platform.isIOS" \
   "$repo_root/lib/widgets/mobile_player_controls.dart"; then
   echo "mobile player must expose Picture in Picture on Android and iOS"
