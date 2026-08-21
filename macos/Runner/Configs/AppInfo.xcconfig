@@ -8,7 +8,7 @@
 PRODUCT_NAME = tv
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = org.moontechlab.selene
+PRODUCT_BUNDLE_IDENTIFIER = rog.v200ddbot.tv
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.

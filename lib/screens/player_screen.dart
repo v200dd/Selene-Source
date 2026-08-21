@@ -10,6 +10,7 @@ import '../services/m3u8_service.dart';
 import '../services/douban_service.dart';
 import '../services/user_data_service.dart';
 import '../services/search_service.dart';
+import '../services/worker_proxy_service.dart';
 import '../models/search_result.dart';
 import '../models/douban_movie.dart';
 import '../models/play_record.dart';
@@ -647,6 +648,9 @@ class _PlayerScreenState extends State<PlayerScreen>
         finalUrl = '$m3u8ProxyUrl$encodedUrl';
         print("使用 M3U8 代理: $finalUrl");
       }
+
+      // Cloudflare Worker 加速：m3u8/视频流经 Worker 转发，失败自动降级直连。
+      finalUrl = await WorkerProxyService.rewrite(finalUrl);
 
       if (_isCasting) {
         // 构建标题：{title} - {第 x 集} - {sourceName}

@@ -892,6 +892,7 @@ class _MainLayoutState extends State<MainLayout> {
       {'icon': LucideIcons.radio, 'label': '直播'},
       {'icon': LucideIcons.film, 'label': '短剧'},
       {'icon': LucideIcons.users, 'label': '观影房'},
+      {'icon': LucideIcons.download, 'label': '下载'},
     ];
 
     final isTablet = DeviceUtils.isTablet(context);
@@ -916,26 +917,45 @@ class _MainLayoutState extends State<MainLayout> {
         top: 8,
         bottom: MediaQuery.of(context).padding.bottom + 8, // 手动处理底部安全区域
       ),
-      // 平板居中排布；手机端把宽度平均分给每一项，避免最后一项被裁切。
-      child: isTablet
-          ? Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: navItems
-                  .asMap()
-                  .entries
-                  .expand((entry) => [
-                        _buildNavItem(
-                          themeService: themeService,
-                          index: entry.key,
-                          item: entry.value,
-                          isTablet: true,
-                        ),
-                        if (entry.key < navItems.length - 1)
-                          const SizedBox(width: 28),
-                      ])
-                  .toList(),
-            )
-          : Row(
+      // 分类变多以后，手机窄屏用 Expanded 平分会把「观影房」这类三字标签压变形。
+      // 这里先算每项需要的最小宽度：装得下就平分，装不下就横向滚动，保证文字完整。
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const minItemWidth = 58.0;
+          final available = constraints.maxWidth;
+          final fits = navItems.length * minItemWidth <= available;
+
+          if (isTablet) {
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: fits
+                  ? const NeverScrollableScrollPhysics()
+                  : const ClampingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: available),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: navItems
+                      .asMap()
+                      .entries
+                      .expand((entry) => [
+                            _buildNavItem(
+                              themeService: themeService,
+                              index: entry.key,
+                              item: entry.value,
+                              isTablet: true,
+                            ),
+                            if (entry.key < navItems.length - 1)
+                              const SizedBox(width: 20),
+                          ])
+                      .toList(),
+                ),
+              ),
+            );
+          }
+
+          if (fits) {
+            return Row(
               children: navItems
                   .asMap()
                   .entries
@@ -948,7 +968,30 @@ class _MainLayoutState extends State<MainLayout> {
                         ),
                       ))
                   .toList(),
+            );
+          }
+
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const ClampingScrollPhysics(),
+            child: Row(
+              children: navItems
+                  .asMap()
+                  .entries
+                  .map((entry) => SizedBox(
+                        width: minItemWidth,
+                        child: _buildNavItem(
+                          themeService: themeService,
+                          index: entry.key,
+                          item: entry.value,
+                          isTablet: false,
+                        ),
+                      ))
+                  .toList(),
             ),
+          );
+        },
+      ),
     );
   }
 

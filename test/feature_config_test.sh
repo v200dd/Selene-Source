@@ -33,15 +33,42 @@ if ! grep -q "/api/danmu-external" \
   exit 1
 fi
 
-if ! grep -q "auto_pip_enabled" \
+if ! grep -q "worker_proxy_url" \
   "$repo_root/lib/services/user_data_service.dart"; then
-  echo "auto Picture in Picture must be a persisted preference"
+  echo "Cloudflare Worker proxy must be a persisted preference"
   exit 1
 fi
 
-if ! grep -q "willResignActiveNotification" \
+if ! grep -q "Cloudflare Worker 代理加速" "$repo_root/lib/widgets/user_menu.dart"; then
+  echo "settings must expose the Cloudflare Worker proxy input"
+  exit 1
+fi
+
+# 画中画只能手动触发：自动进入会在播放页留下常驻 AVPlayerLayer，表现为下方黑块。
+if grep -q "willResignActiveNotification" \
   "$repo_root/ios/Runner/AppDelegate.swift"; then
-  echo "iOS must enter Picture in Picture when leaving for the home screen"
+  echo "iOS must not auto-enter Picture in Picture"
+  exit 1
+fi
+
+if ! grep -q "hostLayerSize" "$repo_root/ios/Runner/AppDelegate.swift"; then
+  echo "iOS PiP host layer must stay tiny so it cannot cover the Flutter view"
+  exit 1
+fi
+
+if ! grep -q "DownloadScreen" "$repo_root/lib/screens/home_screen.dart"; then
+  echo "bottom navigation must include the local download category"
+  exit 1
+fi
+
+if ! grep -q "rog.v200ddbot.tv" \
+  "$repo_root/ios/Runner.xcodeproj/project.pbxproj"; then
+  echo "iOS bundle identifier must be rog.v200ddbot.tv"
+  exit 1
+fi
+
+if ! grep -q "^version: 4\." "$repo_root/pubspec.yaml"; then
+  echo "app version must be 4.x"
   exit 1
 fi
 

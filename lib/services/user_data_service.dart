@@ -14,7 +14,7 @@ class UserDataService {
   static const String _isLocalModeKey = 'is_local_mode';
   static const String _playbackCacheModeKey = 'playback_cache_mode';
   static const String _danmakuEnabledKey = 'danmaku_enabled';
-  static const String _autoPipKey = 'auto_pip_enabled';
+  static const String _workerProxyUrlKey = 'worker_proxy_url';
 
   // 内存缓存
   static bool? _isLocalModeCache;
@@ -313,14 +313,19 @@ class UserDataService {
     await prefs.setBool(_danmakuEnabledKey, enabled);
   }
 
-  /// 回到手机主屏幕时自动进入画中画（默认开启）。
-  static Future<bool> getAutoPipEnabled() async {
+  /// Cloudflare Worker 代理加速地址（留空表示不启用）。
+  static Future<String> getWorkerProxyUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_autoPipKey) ?? true;
+    return prefs.getString(_workerProxyUrlKey) ?? '';
   }
 
-  static Future<void> saveAutoPipEnabled(bool enabled) async {
+  static Future<void> saveWorkerProxyUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_autoPipKey, enabled);
+    final cleaned = url.trim().replaceAll(RegExp(r'/+$'), '');
+    if (cleaned.isEmpty) {
+      await prefs.remove(_workerProxyUrlKey);
+      return;
+    }
+    await prefs.setString(_workerProxyUrlKey, cleaned);
   }
 }

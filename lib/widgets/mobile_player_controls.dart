@@ -32,6 +32,7 @@ class MobilePlayerControls extends StatefulWidget {
   final bool isPipMode;
   final bool danmakuEnabled;
   final Future<void> Function() onShowDanmakuPanel;
+  final Future<void> Function()? onDownload;
 
   const MobilePlayerControls({
     super.key,
@@ -58,6 +59,7 @@ class MobilePlayerControls extends StatefulWidget {
     required this.isPipMode,
     required this.danmakuEnabled,
     required this.onShowDanmakuPanel,
+    this.onDownload,
   });
 
   @override
@@ -936,6 +938,25 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
                       ),
                     ),
                   ),
+                if (!widget.live && widget.onDownload != null)
+                  GestureDetector(
+                    onTap: () async {
+                      _onUserInteraction();
+                      await widget.onDownload!.call();
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      child: Tooltip(
+                        message: '下载',
+                        child: Icon(
+                          Icons.download_rounded,
+                          color: Colors.white,
+                          size: _isFullscreen ? 22 : 20,
+                        ),
+                      ),
+                    ),
+                  ),
                 GestureDetector(
                   onTap: () {
                     _onUserInteraction();
@@ -947,7 +968,9 @@ class _MobilePlayerControlsState extends State<MobilePlayerControls> {
                   },
                   behavior: HitTestBehavior.opaque,
                   child: Container(
-                    padding: EdgeInsets.only(left: _isFullscreen ? 12 : 5, right: _isFullscreen ? 12 : 8),
+                    padding: EdgeInsets.only(
+                        left: _isFullscreen ? 12 : 5,
+                        right: _isFullscreen ? 12 : 8),
                     child: Icon(
                       _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
                       color: Colors.white,

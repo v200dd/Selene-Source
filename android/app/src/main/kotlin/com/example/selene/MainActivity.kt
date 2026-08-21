@@ -1,4 +1,4 @@
-package org.moontechlab.selene
+package rog.v200ddbot.tv
 
 import io.flutter.embedding.android.FlutterActivity
 

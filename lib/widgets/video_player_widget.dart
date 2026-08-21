@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pip/pip.dart';
 import '../models/danmaku_comment.dart';
 import '../services/danmaku_service.dart';
+import '../services/download_service.dart';
 import '../services/user_data_service.dart';
 import 'danmaku_overlay.dart';
 import 'mobile_player_controls.dart';
@@ -153,8 +154,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   static const MethodChannel _iosPipChannel = MethodChannel('selene/ios_pip');
   bool _isPipMode = false;
   bool _pipTransitionInProgress = false;
-  bool _autoPipEnabled = true;
-  Timer? _pipSyncTimer;
   bool _danmakuEnabled = true;
   bool _isLoadingDanmaku = false;
   String? _danmakuError;
@@ -172,7 +171,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     _setupPip();
     _registerPipObserver();
     _registerIosPipHandler();
-    _loadAutoPipPreference();
     _loadDanmakuPreference();
     widget.onControllerCreated?.call(VideoPlayerWidgetController._(this));
   }
@@ -227,7 +225,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       unawaited(_loadDanmaku());
       if (!mounted || _playerDisposed || _player == null) return;
       await _player!.setRate(_playbackSpeed.value);
-      unawaited(_prepareIosPip());
       if (!mounted || _playerDisposed) return;
       setState(() {
         _hasCompleted = false;
@@ -332,7 +329,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       unawaited(_loadDanmaku());
       _playbackSpeed.value = currentSpeed;
       await _player!.setRate(currentSpeed);
-      unawaited(_prepareIosPip());
       if (mounted) {
         setState(() {
           _hasCompleted = false;
@@ -445,16 +441,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   }
 
   void _setupPip() {
-    if (Platform.isIOS) {
-      // iOS 侧在原生预备一个同源的影子播放器，见 AppDelegate.swift。
-      unawaited(_prepareIosPip());
-      _pipSyncTimer?.cancel();
-      _pipSyncTimer = Timer.periodic(
-        const Duration(seconds: 1),
-        (_) => unawaited(_syncIosPipPosition()),
-      );
-      return;
-    }
+    // iOS 的画中画只在点按钮时由原生临时创建，见 AppDelegate.swift。
     if (!Platform.isAndroid) return;
     _pip.setup(const PipOptions(
       autoEnterEnabled: false,
@@ -464,50 +451,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
       preferredContentHeight: 270,
       controlStyle: 2,
     ));
-  }
-
-  Future<void> _loadAutoPipPreference() async {
-    final enabled = await UserDataService.getAutoPipEnabled();
-    if (!mounted) return;
-    setState(() => _autoPipEnabled = enabled);
-    if (Platform.isIOS) {
-      try {
-        await _iosPipChannel
-            .invokeMethod<void>('setAutoEnter', {'enabled': enabled});
-      } catch (error) {
-        debugPrint('VideoPlayerWidget: setAutoEnter failed: $error');
-      }
-    }
-  }
-
-  /// 让原生侧提前建好 AVPlayer + PiP 控制器：回到桌面时才来得及自动进入画中画。
-  Future<void> _prepareIosPip() async {
-    if (!Platform.isIOS || _currentUrl == null) return;
-    try {
-      await _iosPipChannel.invokeMethod<bool>('prepare', {
-        'url': _currentUrl,
-        'headers': _currentHeaders ?? const <String, String>{},
-        'positionMs': _player?.state.position.inMilliseconds ?? 0,
-        'playing': _player?.state.playing ?? false,
-        'autoEnter': _autoPipEnabled,
-      });
-    } catch (error) {
-      debugPrint('VideoPlayerWidget: iOS PiP prepare failed: $error');
-    }
-  }
-
-  Future<void> _syncIosPipPosition() async {
-    if (!Platform.isIOS || _playerDisposed || _isPipMode) return;
-    final player = _player;
-    if (player == null || _currentUrl == null) return;
-    try {
-      await _iosPipChannel.invokeMethod<void>('updatePosition', {
-        'positionMs': player.state.position.inMilliseconds,
-        'playing': player.state.playing,
-      });
-    } catch (error) {
-      debugPrint('VideoPlayerWidget: iOS PiP sync failed: $error');
-    }
   }
 
   void _registerPipObserver() {
@@ -556,8 +499,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
               'url': _currentUrl,
               'headers': _currentHeaders ?? const <String, String>{},
               'positionMs': _player!.state.position.inMilliseconds,
-              'playing': true,
-              'autoEnter': _autoPipEnabled,
             }) ??
             false;
         if (!started) await _player!.play();
@@ -588,10 +529,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     _iosPipChannel.setMethodCallHandler((call) async {
       if (!mounted) return;
       switch (call.method) {
-        case 'willEnterPip':
-          // 原生侧要接管播放了，先把 mpv 停下来避免双声道。
-          await _player?.pause();
-          break;
         case 'started':
           setState(() => _isPipMode = true);
           widget.onPipModeChanged?.call(true);
@@ -618,9 +555,33 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
     });
   }
 
+  /// 本地下载的文件不需要再提供下载按钮。
+  bool get _isLocalSource {
+    final url = _currentUrl ?? '';
+    if (url.isEmpty) return true;
+    return !url.startsWith('http');
+  }
+
+  /// 把当前播放地址加入本地下载队列。
+  Future<void> _downloadCurrent() async {
+    final url = _currentUrl;
+    if (url == null || url.isEmpty) return;
+    final episodeIndex = widget.currentEpisodeIndex;
+    final message = await DownloadService.instance.enqueue(
+      title: widget.videoTitle?.trim().isNotEmpty == true
+          ? widget.videoTitle!.trim()
+          : '未命名视频',
+      url: url,
+      episodeLabel: episodeIndex == null ? '' : '第${episodeIndex + 1}集',
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message ?? '已加入下载，可在「下载」分类查看进度')),
+    );
+  }
+
   Future<void> _showDanmakuPanel() async {
     var enabled = _danmakuEnabled;
-    var autoPip = _autoPipEnabled;
 
     await showDialog<void>(
       context: context,
@@ -642,21 +603,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
                       unawaited(UserDataService.saveDanmakuEnabled(value));
                     },
                   ),
-                  if (Platform.isAndroid || Platform.isIOS)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('回到桌面自动画中画'),
-                      value: autoPip,
-                      onChanged: (value) {
-                        setDialogState(() => autoPip = value);
-                        setState(() => _autoPipEnabled = value);
-                        unawaited(UserDataService.saveAutoPipEnabled(value));
-                        if (Platform.isIOS) {
-                          unawaited(_iosPipChannel.invokeMethod<void>(
-                              'setAutoEnter', {'enabled': value}));
-                        }
-                      },
-                    ),
                   const SizedBox(height: 8),
                   Text(
                     _isLoadingDanmaku
@@ -812,7 +758,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _pipSyncTimer?.cancel();
     if (Platform.isAndroid || Platform.isIOS) {
       if (Platform.isAndroid) {
         _pip.unregisterStateChangedObserver();
@@ -885,6 +830,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
                         isPipMode: _isPipMode,
                         danmakuEnabled: _danmakuEnabled,
                         onShowDanmakuPanel: _showDanmakuPanel,
+                        onDownload: _isLocalSource ? null : _downloadCurrent,
                       );
                 return Stack(
                   children: [

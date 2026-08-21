@@ -10,6 +10,7 @@ import '../services/page_cache_service.dart';
 import '../services/live_service.dart';
 import '../services/local_search_cache_service.dart';
 import '../services/version_service.dart';
+import '../services/worker_proxy_service.dart';
 import '../utils/device_utils.dart';
 import '../utils/font_utils.dart';
 import 'update_dialog.dart';
@@ -34,6 +35,7 @@ class _UserMenuState extends State<UserMenu> {
   String _doubanDataSource = '直连';
   String _doubanImageSource = '直连';
   String _m3u8ProxyUrl = '';
+  String _workerProxyUrl = '';
   String _version = '';
   bool _preferSpeedTest = true;
   bool _localSearch = false;
@@ -65,6 +67,7 @@ class _UserMenuState extends State<UserMenu> {
     final doubanImageSource =
         await UserDataService.getDoubanImageSourceDisplayName();
     final m3u8ProxyUrl = await UserDataService.getM3u8ProxyUrl();
+    final workerProxyUrl = await UserDataService.getWorkerProxyUrl();
     final preferSpeedTest = await UserDataService.getPreferSpeedTest();
     final localSearch = await UserDataService.getLocalSearch();
     final playbackCacheMode = await UserDataService.getPlaybackCacheMode();
@@ -77,6 +80,7 @@ class _UserMenuState extends State<UserMenu> {
         _doubanDataSource = doubanDataSource;
         _doubanImageSource = doubanImageSource;
         _m3u8ProxyUrl = m3u8ProxyUrl;
+        _workerProxyUrl = workerProxyUrl;
         _preferSpeedTest = preferSpeedTest;
         _localSearch = localSearch;
         _playbackCacheMode = switch (playbackCacheMode) {
@@ -406,6 +410,143 @@ class _UserMenuState extends State<UserMenu> {
         );
       },
     );
+  }
+
+  /// Cloudflare Worker 代理加速：地址 + 功能说明。
+  void _showWorkerProxyDialog() {
+    final controller = TextEditingController(text: _workerProxyUrl);
+    final textColor = widget.isDarkMode
+        ? const Color(0xFFffffff)
+        : const Color(0xFF1f2937);
+    final mutedColor = widget.isDarkMode
+        ? const Color(0xFF9ca3af)
+        : const Color(0xFF6b7280);
+    const features = [
+      '通过 Cloudflare 全球 CDN 加速视频源 API 访问',
+      '自动转发所有 API 参数（ac=list、ac=detail 等）',
+      '为每个源生成唯一路径，提升兼容性',
+      '播放 m3u8/视频时自动经 Worker 代理转发，加速播放流',
+      'Worker 代理失败时自动降级为直连，不影响正常播放',
+      'Emby 源不受影响（需自定义鉴权头，始终直连）',
+      '仅影响 App 内播放，不影响 TVBox 配置',
+    ];
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor:
+              widget.isDarkMode ? const Color(0xFF2c2c2c) : Colors.white,
+          title: Text(
+            'Cloudflare Worker 代理加速',
+            style: FontUtils.poppins(
+              fontSize: 18,
+              color: textColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.url,
+                  style: FontUtils.poppins(fontSize: 14, color: textColor),
+                  decoration: InputDecoration(
+                    hintText: '例如 https://your-worker.workers.dev',
+                    hintStyle:
+                        FontUtils.poppins(fontSize: 14, color: mutedColor),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: widget.isDarkMode
+                            ? const Color(0xFF374151)
+                            : const Color(0xFFe5e7eb),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: widget.isDarkMode
+                            ? const Color(0xFF374151)
+                            : const Color(0xFFe5e7eb),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF10b981),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '💡 功能说明',
+                  style: FontUtils.poppins(
+                    fontSize: 14,
+                    color: textColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...features.map(
+                  (feature) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('• ',
+                            style: FontUtils.poppins(
+                                fontSize: 12, color: mutedColor)),
+                        Expanded(
+                          child: Text(
+                            feature,
+                            style: FontUtils.poppins(
+                                fontSize: 12, color: mutedColor, height: 1.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                '取消',
+                style: FontUtils.poppins(fontSize: 14, color: mutedColor),
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                final url = controller.text.trim();
+                await UserDataService.saveWorkerProxyUrl(url);
+                WorkerProxyService.resetHealthCache();
+                if (!mounted) return;
+                setState(() => _workerProxyUrl =
+                    url.replaceAll(RegExp(r'/+$'), ''));
+                if (context.mounted) Navigator.of(context).pop();
+              },
+              child: Text(
+                '保存',
+                style: FontUtils.poppins(
+                  fontSize: 14,
+                  color: const Color(0xFF10b981),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    ).whenComplete(controller.dispose);
   }
 
   void _showM3u8ProxyUrlDialog() {
@@ -801,6 +942,20 @@ class _UserMenuState extends State<UserMenu> {
                       currentValue: _m3u8ProxyUrl,
                       onTap: _showM3u8ProxyUrlDialog,
                       icon: LucideIcons.link,
+                    ),
+                    // 分割线
+                    Container(
+                      height: 1,
+                      color: widget.isDarkMode
+                          ? const Color(0xFF374151)
+                          : const Color(0xFFe5e7eb),
+                    ),
+                    // Cloudflare Worker 代理加速
+                    _buildInputOption(
+                      title: 'Cloudflare Worker 代理加速',
+                      currentValue: _workerProxyUrl,
+                      onTap: _showWorkerProxyDialog,
+                      icon: LucideIcons.cloud,
                     ),
                     // 分割线
                     Container(

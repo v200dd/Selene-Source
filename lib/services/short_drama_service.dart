@@ -217,6 +217,33 @@ class ShortDramaService {
     );
   }
 
+  /// 取真实集数。
+  ///
+  /// `/api/shortdrama/parse` 的 `totalEpisodes` 在主源失效时会退化成 1，
+  /// 所以额外问一次 `/api/shortdrama/detail`（它内部会走备用 API），
+  /// 取两者的较大值。任何一步失败都不抛错，保持列表页给出的集数。
+  static Future<int> getEpisodeCount({
+    required int id,
+    required String name,
+  }) async {
+    final response = await ApiService.get<dynamic>(
+      '/api/shortdrama/detail',
+      queryParameters: {
+        'id': '$id',
+        if (name.isNotEmpty) 'name': name,
+      },
+    );
+    if (!response.success || response.data is! Map) return 0;
+    final json = Map<String, dynamic>.from(response.data as Map);
+    final candidates = <int>[
+      (json['totalEpisodes'] as num?)?.toInt() ?? 0,
+      (json['episode_count'] as num?)?.toInt() ?? 0,
+      if (json['episodes'] is List) (json['episodes'] as List).length,
+    ];
+    candidates.sort();
+    return candidates.last;
+  }
+
   static ShortDramaPage _parsePage(dynamic data, {required int page}) {
     if (data is! Map) return const ShortDramaPage(items: [], hasMore: false);
     final json = Map<String, dynamic>.from(data);
