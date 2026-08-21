@@ -17,7 +17,8 @@
 # =========================
 # Project Specific
 # =========================
--keep class org.moontechlab.selene.MainActivity { *; }
+# 包名早就改成 rog.v200ddbot.tv 了，旧的 keep 规则指向不存在的类，等于没保留。
+-keep class rog.v200ddbot.tv.MainActivity { *; }
 
 # =========================
 # 关键属性 (用于调试)

@@ -1,0 +1,119 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Run configuration checks
+        run: bash test/ci_config_test.sh && bash test/feature_config_test.sh
+
+      # 用固定密钥签名，装机时不会因为签名变化要求先卸载旧版本。
+      # 密钥本体和口令都放在仓库 Secrets 里，不进 Git。
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 secret is missing" >&2
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/app/tv-release-key.jks
+          cat > android/key.properties <<EOF
+          storeFile=tv-release-key.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build universal release APK
+        run: flutter build apk --release
+
+      - name: Build per-ABI release APKs
+        run: flutter build apk --release --split-per-abi
+
+      - name: Collect APKs
+        run: |
+          mkdir -p build/android-release
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            build/android-release/tv-android-universal.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            build/android-release/tv-android-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            build/android-release/tv-android-armeabi-v7a.apk
+          ls -lh build/android-release
+
+      # 确认包名和签名都对，避免发出去一个装不上的包。
+      - name: Verify APK identity and signature
+        run: |
+          build_tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$build_tools/aapt2" dump packagename \
+            build/android-release/tv-android-universal.apk | tee /tmp/pkg.txt
+          grep -Fxq 'rog.v200ddbot.tv' /tmp/pkg.txt
+          "$build_tools/apksigner" verify --verbose \
+            build/android-release/tv-android-universal.apk
+
+      - name: Upload release APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-android-apk
+          path: build/android-release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      # Artifact 需要登录 GitHub 才能下载，Release 是公开直链，手机浏览器能直接装。
+      - name: Publish APKs to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-${{ github.run_number }}
+          name: "tv Android 安装包 #${{ github.run_number }}"
+          body: |
+            已签名的 Android release APK，手机上直接下载安装即可（需允许「安装未知来源应用」）。
+
+            - `tv-android-universal.apk`：通用包，任何机型都能装，体积最大。
+            - `tv-android-arm64-v8a.apk`：2017 年以后的机型基本都是这个，体积小。
+            - `tv-android-armeabi-v7a.apk`：老的 32 位机型。
+
+            不确定选哪个就下 universal。
+
+            - 提交：${{ github.sha }}
+            - 构建：Actions run #${{ github.run_number }}
+          files: build/android-release/*.apk
+          draft: false
+          prerelease: false
