@@ -35,6 +35,17 @@ jobs:
           channel: stable
           cache: true
 
+      # 项目在 android/app/build.gradle.kts 里钉了 NDK 版本，runner 预装的 SDK 里没有，
+      # Gradle 自动装会卡在没接受许可上，所以先接受许可再显式安装。
+      - name: Install pinned Android NDK
+        run: |
+          ndk_version="$(grep -oE 'ndkVersion = "[^"]+"' android/app/build.gradle.kts \
+            | head -1 | cut -d'"' -f2)"
+          echo "Installing NDK $ndk_version"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "ndk;$ndk_version"
+          test -d "$ANDROID_HOME/ndk/$ndk_version"
+
       - name: Resolve Flutter dependencies
         run: flutter pub get
 
