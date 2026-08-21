@@ -8,6 +8,7 @@ import 'package:pip/pip.dart';
 import '../models/danmaku_comment.dart';
 import '../services/danmaku_service.dart';
 import '../services/download_service.dart';
+import '../services/hls_downloader.dart';
 import '../services/user_data_service.dart';
 import 'danmaku_overlay.dart';
 import 'mobile_player_controls.dart';
@@ -566,17 +567,56 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget>
   Future<void> _downloadCurrent() async {
     final url = _currentUrl;
     if (url == null || url.isEmpty) return;
+
+    // m3u8 合并后可以选容器；直链就按原始后缀存。
+    var format = DownloadFormat.ts;
+    if (DownloadService.isStreamPlaylist(url)) {
+      final picked = await _pickFormat();
+      if (picked == null) return;
+      format = picked;
+    }
+
     final episodeIndex = widget.currentEpisodeIndex;
     final message = await DownloadService.instance.enqueue(
       title: widget.videoTitle?.trim().isNotEmpty == true
           ? widget.videoTitle!.trim()
           : '未命名视频',
       url: url,
+      format: format,
       episodeLabel: episodeIndex == null ? '' : '第${episodeIndex + 1}集',
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message ?? '已加入下载，可在「下载」分类查看进度')),
+    );
+  }
+
+  Future<DownloadFormat?> _pickFormat() {
+    return showDialog<DownloadFormat>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('选择下载格式'),
+        content: const Text(
+          '这一集是 M3U8 分片流。App 会在本机下载 TS 片段、自动解密并按序合并，'
+          '不占用服务器存储和带宽。\n\n'
+          'TS：兼容性最好。\nMP4：同样的画质，后缀更通用。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(DownloadFormat.ts),
+            child: const Text('TS'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(DownloadFormat.mp4),
+            child: const Text('MP4'),
+          ),
+        ],
+      ),
     );
   }
 

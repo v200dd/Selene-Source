@@ -917,79 +917,60 @@ class _MainLayoutState extends State<MainLayout> {
         top: 8,
         bottom: MediaQuery.of(context).padding.bottom + 8, // 手动处理底部安全区域
       ),
-      // 分类变多以后，手机窄屏用 Expanded 平分会把「观影房」这类三字标签压变形。
-      // 这里先算每项需要的最小宽度：装得下就平分，装不下就横向滚动，保证文字完整。
+      // 9 个分类挤在一行会把「观影房」这类三字标签压变形，所以窄屏改成双行，
+      // 每行平分宽度；平板一行放得下就仍然单行居中。
       child: LayoutBuilder(
         builder: (context, constraints) {
-          const minItemWidth = 58.0;
-          final available = constraints.maxWidth;
-          final fits = navItems.length * minItemWidth <= available;
+          const minItemWidth = 64.0;
+          final singleRowFits =
+              navItems.length * minItemWidth <= constraints.maxWidth;
 
-          if (isTablet) {
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: fits
-                  ? const NeverScrollableScrollPhysics()
-                  : const ClampingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: available),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: navItems
-                      .asMap()
-                      .entries
-                      .expand((entry) => [
-                            _buildNavItem(
-                              themeService: themeService,
-                              index: entry.key,
-                              item: entry.value,
-                              isTablet: true,
-                            ),
-                            if (entry.key < navItems.length - 1)
-                              const SizedBox(width: 20),
-                          ])
-                      .toList(),
-                ),
-              ),
-            );
-          }
-
-          if (fits) {
+          if (isTablet && singleRowFits) {
             return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: navItems
                   .asMap()
                   .entries
-                  .map((entry) => Expanded(
-                        child: _buildNavItem(
+                  .expand((entry) => [
+                        _buildNavItem(
                           themeService: themeService,
                           index: entry.key,
                           item: entry.value,
-                          isTablet: false,
+                          isTablet: true,
                         ),
-                      ))
+                        if (entry.key < navItems.length - 1)
+                          const SizedBox(width: 20),
+                      ])
                   .toList(),
             );
           }
 
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const ClampingScrollPhysics(),
-            child: Row(
-              children: navItems
-                  .asMap()
-                  .entries
-                  .map((entry) => SizedBox(
-                        width: minItemWidth,
-                        child: _buildNavItem(
-                          themeService: themeService,
-                          index: entry.key,
-                          item: entry.value,
-                          isTablet: false,
-                        ),
-                      ))
-                  .toList(),
-            ),
-          );
+          // 双行：上行多放一个，下行补空位保持对齐。
+          final perRow = (navItems.length / 2).ceil();
+          final rows = <Widget>[];
+          for (var start = 0; start < navItems.length; start += perRow) {
+            final end = (start + perRow) > navItems.length
+                ? navItems.length
+                : start + perRow;
+            final children = <Widget>[];
+            for (var index = start; index < end; index++) {
+              children.add(Expanded(
+                child: _buildNavItem(
+                  themeService: themeService,
+                  index: index,
+                  item: navItems[index],
+                  isTablet: isTablet,
+                ),
+              ));
+            }
+            for (var filler = end - start; filler < perRow; filler++) {
+              children.add(const Expanded(child: SizedBox.shrink()));
+            }
+            if (rows.isNotEmpty) rows.add(const SizedBox(height: 6));
+            rows.add(Row(children: children));
+          }
+
+          return Column(mainAxisSize: MainAxisSize.min, children: rows);
         },
       ),
     );

@@ -61,6 +61,29 @@ if ! grep -q "DownloadScreen" "$repo_root/lib/screens/home_screen.dart"; then
   exit 1
 fi
 
+if ! grep -q "EXT-X-KEY" "$repo_root/lib/services/hls_downloader.dart"; then
+  echo "downloader must handle AES-128 encrypted m3u8 playlists"
+  exit 1
+fi
+
+if ! grep -q "enum DownloadFormat" "$repo_root/lib/services/hls_downloader.dart"; then
+  echo "downloads must offer both TS and MP4 output"
+  exit 1
+fi
+
+# 短剧频道必须走跟电影、剧集相同的采集源，不能只依赖主站 /api/shortdrama/*。
+if ! grep -q "ShortDramaSourceService" \
+  "$repo_root/lib/screens/short_drama_screen.dart"; then
+  echo "short drama channel must read from the shared video sources"
+  exit 1
+fi
+
+if ! grep -q "ac=videolist" \
+  "$repo_root/lib/services/short_drama_source_service.dart"; then
+  echo "short drama source service must use the CMS videolist API"
+  exit 1
+fi
+
 if ! grep -q "rog.v200ddbot.tv" \
   "$repo_root/ios/Runner.xcodeproj/project.pbxproj"; then
   echo "iOS bundle identifier must be rog.v200ddbot.tv"

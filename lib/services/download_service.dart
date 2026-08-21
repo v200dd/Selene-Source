@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'hls_downloader.dart';
 import 'worker_proxy_service.dart';
 
 enum DownloadStatus { queued, running, completed, failed, paused }
@@ -17,11 +18,14 @@ class DownloadTask {
     required this.title,
     required this.url,
     required this.fileName,
+    this.format = DownloadFormat.ts,
     this.poster = '',
     this.episodeLabel = '',
     this.status = DownloadStatus.queued,
     this.receivedBytes = 0,
     this.totalBytes = 0,
+    this.doneSegments = 0,
+    this.totalSegments = 0,
     this.error,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
@@ -30,6 +34,7 @@ class DownloadTask {
   final String title;
   final String url;
   final String fileName;
+  final DownloadFormat format;
   final String poster;
   final String episodeLabel;
   final DateTime createdAt;
@@ -37,10 +42,20 @@ class DownloadTask {
   DownloadStatus status;
   int receivedBytes;
   int totalBytes;
+
+  /// m3u8 下载时的分片进度；直链下载保持 0。
+  int doneSegments;
+  int totalSegments;
   String? error;
 
-  double get progress =>
-      totalBytes <= 0 ? 0 : (receivedBytes / totalBytes).clamp(0.0, 1.0);
+  bool get isSegmented => totalSegments > 0;
+
+  double get progress {
+    if (isSegmented) {
+      return (doneSegments / totalSegments).clamp(0.0, 1.0);
+    }
+    return totalBytes <= 0 ? 0 : (receivedBytes / totalBytes).clamp(0.0, 1.0);
+  }
 
   bool get isFinished => status == DownloadStatus.completed;
 
@@ -52,11 +67,14 @@ class DownloadTask {
         'title': title,
         'url': url,
         'fileName': fileName,
+        'format': format.name,
         'poster': poster,
         'episodeLabel': episodeLabel,
         'status': status.name,
         'receivedBytes': receivedBytes,
         'totalBytes': totalBytes,
+        'doneSegments': doneSegments,
+        'totalSegments': totalSegments,
         'error': error,
         'createdAt': createdAt.toIso8601String(),
       };
@@ -66,6 +84,10 @@ class DownloadTask {
         title: (json['title'] ?? '').toString(),
         url: (json['url'] ?? '').toString(),
         fileName: (json['fileName'] ?? '').toString(),
+        format: DownloadFormat.values.firstWhere(
+          (item) => item.name == json['format'],
+          orElse: () => DownloadFormat.ts,
+        ),
         poster: (json['poster'] ?? '').toString(),
         episodeLabel: (json['episodeLabel'] ?? '').toString(),
         status: DownloadStatus.values.firstWhere(
@@ -74,6 +96,8 @@ class DownloadTask {
         ),
         receivedBytes: (json['receivedBytes'] as num?)?.toInt() ?? 0,
         totalBytes: (json['totalBytes'] as num?)?.toInt() ?? 0,
+        doneSegments: (json['doneSegments'] as num?)?.toInt() ?? 0,
+        totalSegments: (json['totalSegments'] as num?)?.toInt() ?? 0,
         error: json['error']?.toString(),
         createdAt: DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
             DateTime.now(),
@@ -82,8 +106,10 @@ class DownloadTask {
 
 /// 本地下载管理。
 ///
-/// 只处理单文件直链（mp4/mkv 等）。HLS(m3u8) 是分片流，需要合并才能离线播放，
-/// 这里不做半成品下载，而是明确拒绝并提示原因。
+/// 两条链路：
+/// - 直链（mp4/mkv 等）走 dio 的断点下载；
+/// - m3u8 走 [HlsDownloader]，在设备本地拉 TS 分片、解 AES-128、按序合并，
+///   不占用服务器存储和带宽。
 class DownloadService {
   DownloadService._();
 
@@ -152,8 +178,7 @@ class DownloadService {
 
   /// m3u8 是分片流，直接下载只会拿到一个播放列表文本。
   static bool isStreamPlaylist(String url) {
-    final path = Uri.tryParse(url)?.path.toLowerCase() ?? url.toLowerCase();
-    return path.endsWith('.m3u8') || path.endsWith('.m3u');
+    return HlsDownloader.isPlaylist(url);
   }
 
   Future<File> fileForTask(DownloadTask task) async {
@@ -165,24 +190,25 @@ class DownloadService {
   Future<String?> enqueue({
     required String title,
     required String url,
+    DownloadFormat format = DownloadFormat.ts,
     String poster = '',
     String episodeLabel = '',
   }) async {
     await load();
     if (url.trim().isEmpty) return '播放地址为空，无法下载';
-    if (isStreamPlaylist(url)) {
-      return '这一集是 m3u8 分片流，暂不支持离线下载';
-    }
     if (tasks.value.any((task) => task.url == url && !task.isFinished)) {
       return '该视频已在下载列表中';
     }
 
     final id = DateTime.now().microsecondsSinceEpoch.toString();
-    final extension = _extensionOf(url);
+    // m3u8 合并后的容器由用户选的格式决定；直链保留原始后缀。
+    final extension =
+        isStreamPlaylist(url) ? format.extension : _extensionOf(url);
     final task = DownloadTask(
       id: id,
       title: title,
       url: url,
+      format: format,
       poster: poster,
       episodeLabel: episodeLabel,
       fileName: '$id$extension',
@@ -214,6 +240,9 @@ class DownloadService {
     try {
       final file = await fileForTask(task);
       if (await file.exists()) await file.delete();
+      // HLS 下载的临时分片目录也要清掉，否则会一直占空间。
+      final parts = Directory('${file.parent.path}/.${task.fileName}.parts');
+      if (await parts.exists()) await parts.delete(recursive: true);
     } catch (error) {
       debugPrint('DownloadService: delete failed: $error');
     }
@@ -231,18 +260,42 @@ class DownloadService {
 
     try {
       final file = await fileForTask(task);
-      // 走 Worker 加速（未配置或探测失败会原样返回直连地址）。
-      final url = await WorkerProxyService.rewrite(task.url);
-      await _dio.download(
-        url,
-        file.path,
-        cancelToken: token,
-        onReceiveProgress: (received, total) {
-          task.receivedBytes = received;
-          if (total > 0) task.totalBytes = total;
-          _notify();
-        },
-      );
+
+      if (isStreamPlaylist(task.url)) {
+        // m3u8 里的分片多为相对路径，必须相对原始播放列表地址解析。
+        // 若把播放列表地址改写成 Worker 形式，相对路径就会错误地拼到 Worker 域名上，
+        // 所以 HLS 下载保持直连。
+        final downloader = HlsDownloader(dio: _dio);
+        await downloader.download(
+          url: task.url,
+          target: file,
+          cancelToken: token,
+          onProgress: (done, total, bytes) {
+            task.doneSegments = done;
+            task.totalSegments = total;
+            task.receivedBytes = bytes;
+            _notify();
+          },
+        );
+        if (token.isCancelled) {
+          task.status = DownloadStatus.paused;
+          return;
+        }
+        task.totalBytes = await file.length();
+      } else {
+        // 直链走 Worker 加速（未配置或探测失败会原样返回直连地址）。
+        final url = await WorkerProxyService.rewrite(task.url);
+        await _dio.download(
+          url,
+          file.path,
+          cancelToken: token,
+          onReceiveProgress: (received, total) {
+            task.receivedBytes = received;
+            if (total > 0) task.totalBytes = total;
+            _notify();
+          },
+        );
+      }
       task.status = DownloadStatus.completed;
       if (task.totalBytes <= 0) task.totalBytes = task.receivedBytes;
     } on DioException catch (error) {

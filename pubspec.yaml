@@ -68,6 +68,7 @@ dependencies:
   intl: ^0.20.2
   pip: ^0.0.3
   socket_io_client: ^3.1.2
+  pointycastle: 3.9.1
 
 dev_dependencies:
   flutter_test:

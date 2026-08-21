@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../services/download_service.dart';
+import '../services/hls_downloader.dart';
 import '../services/theme_service.dart';
 import '../utils/device_utils.dart';
 import '../utils/font_utils.dart';
@@ -37,11 +38,65 @@ class _DownloadScreenState extends State<DownloadScreen> {
         if (tasks.isEmpty) return _buildEmpty(isDark);
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          itemCount: tasks.length,
+          itemCount: tasks.length + 1,
           separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) => _buildCard(tasks[index], isDark),
+          itemBuilder: (context, index) => index == 0
+              ? _buildInfoCard(isDark)
+              : _buildCard(tasks[index - 1], isDark),
         );
       },
+    );
+  }
+
+  /// M3U8 客户端下载能力说明。
+  Widget _buildInfoCard(bool isDark) {
+    const features = [
+      '在设备本机直接下载视频，不占用服务器存储和带宽',
+      '支持 M3U8 的 TS 片段合并，可选 TS 或 MP4 输出',
+      '支持 AES-128 加密视频自动解密',
+      '并发下载 + 失败自动重试，已下好的片段不会重复下载',
+    ];
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF27ae60).withValues(alpha: 0.1)
+            : const Color(0xFF27ae60).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.info, size: 14, color: Color(0xFF27ae60)),
+              const SizedBox(width: 6),
+              Text(
+                'M3U8 客户端下载',
+                style: FontUtils.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF27ae60),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...features.map((feature) => Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(
+                  '• $feature',
+                  style: FontUtils.poppins(
+                    fontSize: 11,
+                    height: 1.5,
+                    color: isDark
+                        ? const Color(0xFFaaaaaa)
+                        : const Color(0xFF7f8c8d),
+                  ),
+                ),
+              )),
+        ],
+      ),
     );
   }
 
@@ -68,7 +123,8 @@ class _DownloadScreenState extends State<DownloadScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(
-              '在播放页点右上角的下载按钮即可离线保存。\n注意：m3u8 分片直播流无法直接下载。',
+              '在播放页点下载按钮即可离线保存。\n'
+              'M3U8 会在本机下载 TS 片段、自动解密并合并，可选 TS 或 MP4。',
               textAlign: TextAlign.center,
               style: FontUtils.poppins(
                 fontSize: 12,
@@ -133,7 +189,9 @@ class _DownloadScreenState extends State<DownloadScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
-                      value: task.totalBytes > 0 ? task.progress : null,
+                      value: task.isSegmented || task.totalBytes > 0
+                          ? task.progress
+                          : null,
                       minHeight: 4,
                       backgroundColor: isDark
                           ? const Color(0xFF333333)
@@ -188,8 +246,13 @@ class _DownloadScreenState extends State<DownloadScreen> {
   String _subtitleFor(DownloadTask task) {
     switch (task.status) {
       case DownloadStatus.completed:
-        return '已下载 · ${DownloadService.formatBytes(task.totalBytes)}';
+        return '已下载 · ${task.format.label} · '
+            '${DownloadService.formatBytes(task.totalBytes)}';
       case DownloadStatus.running:
+        if (task.isSegmented) {
+          return '下载分片 ${task.doneSegments}/${task.totalSegments} · '
+              '${DownloadService.formatBytes(task.receivedBytes)}';
+        }
         final total = task.totalBytes > 0
             ? ' / ${DownloadService.formatBytes(task.totalBytes)}'
             : '';
@@ -197,6 +260,10 @@ class _DownloadScreenState extends State<DownloadScreen> {
       case DownloadStatus.queued:
         return '排队中';
       case DownloadStatus.paused:
+        if (task.isSegmented) {
+          return '已暂停 · 分片 ${task.doneSegments}/${task.totalSegments}'
+              '（重试会跳过已下好的片段）';
+        }
         return '已暂停 · ${DownloadService.formatBytes(task.receivedBytes)}';
       case DownloadStatus.failed:
         return '下载失败：${task.error ?? '未知错误'}';
