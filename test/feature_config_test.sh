@@ -127,6 +127,42 @@ if ! grep -q "saveLandscapeDirection" \
   exit 1
 fi
 
+# 观影房服务器在握手时就校验 auth.token，不带 token 会被 emit('error') + 断开，
+# 表现就是界面显示已连接但创建房间毫无反应。
+if ! grep -q "setAuth({'token': authKey})" \
+  "$repo_root/lib/services/watch_room_service.dart"; then
+  echo "watch room socket must send the auth token during the handshake"
+  exit 1
+fi
+
+# 地址和密钥都必须来自主站 /api/watch-room/config，不能写死在 App 里。
+if ! grep -q "/api/watch-room/config" \
+  "$repo_root/lib/services/watch_room_service.dart"; then
+  echo "watch room config must come from the site API"
+  exit 1
+fi
+
+if grep -q "watch-room-server-production" \
+  "$repo_root/lib/screens/watch_room_screen.dart"; then
+  echo "watch room server URL must not be hardcoded in the UI"
+  exit 1
+fi
+
+# 网页版有创建 / 加入 / 房间列表三个页签，App 要对齐。
+for tab in '创建房间' '加入房间' '房间列表'; do
+  if ! grep -q "$tab" "$repo_root/lib/screens/watch_room_screen.dart"; then
+    echo "watch room screen must provide the $tab tab"
+    exit 1
+  fi
+done
+
+# 房主不发心跳的话服务器 30 秒清播放状态、5 分钟删房间。
+if ! grep -q "startHeartbeat" \
+  "$repo_root/lib/screens/watch_room_screen.dart"; then
+  echo "joining a room must start the heartbeat"
+  exit 1
+fi
+
 # 退出播放页要恢复竖屏，否则回到首页会卡在横屏。
 if ! grep -q "OrientationUtils.lockPortrait" \
   "$repo_root/lib/screens/player_screen.dart"; then
