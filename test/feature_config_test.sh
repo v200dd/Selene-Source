@@ -163,6 +163,26 @@ if ! grep -q "startHeartbeat" \
   exit 1
 fi
 
+# 切到底栏的电影页再播放时，观影房页面不能被 PageView 回收；否则 dispose
+# 会断开 socket，房主是最后一名成员时服务器会立即删除房间。
+if ! grep -q "AutomaticKeepAliveClientMixin<WatchRoomScreen>" \
+  "$repo_root/lib/screens/watch_room_screen.dart"; then
+  echo "watch room must stay alive while another bottom navigation page is open"
+  exit 1
+fi
+
+if ! grep -q "bool get wantKeepAlive => true" \
+  "$repo_root/lib/screens/watch_room_screen.dart"; then
+  echo "watch room keep-alive must be enabled"
+  exit 1
+fi
+
+if ! grep -q "super.build(context)" \
+  "$repo_root/lib/screens/watch_room_screen.dart"; then
+  echo "watch room build must register its keep-alive handle"
+  exit 1
+fi
+
 # 退出播放页要恢复竖屏，否则回到首页会卡在横屏。
 if ! grep -q "OrientationUtils.lockPortrait" \
   "$repo_root/lib/screens/player_screen.dart"; then

@@ -25,7 +25,9 @@ class WatchRoomScreen extends StatefulWidget {
 enum _ConnectionState { connecting, connected, failed, disabled }
 
 class _WatchRoomScreenState extends State<WatchRoomScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        AutomaticKeepAliveClientMixin<WatchRoomScreen> {
   late final TabController _tabs = TabController(length: 3, vsync: this);
 
   WatchRoomService? _service;
@@ -48,6 +50,12 @@ class _WatchRoomScreenState extends State<WatchRoomScreen>
   final _joinPasswordController = TextEditingController();
   bool _isPublic = true;
   bool _busy = false;
+
+  // 底栏使用 PageView。观影房离开可视范围后如果被回收，dispose 会断开
+  // Socket.IO 并向服务器离房；房主是最后一名成员时服务器会随即删房。
+  // 保持页面存活，让用户切到电影并进入播放器后仍留在原房间。
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -296,6 +304,7 @@ class _WatchRoomScreenState extends State<WatchRoomScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (_room != null) return _buildRoomPanel(context, _room!);
 
     final theme = Theme.of(context);
